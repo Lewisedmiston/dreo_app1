@@ -1,0 +1,88 @@
+from __future__ import annotations
+import re
+import pandas as pd
+from .utils import to_float
+from .db import add_exception
+
+# Robust pack/size parser for patterns like '6/5 lb', '12/32 oz', '200 ct'
+PACK_RE = re.compile(
+    r"""
+    ^\s*
+    (?P<pack_count>\d+)\s*[/x]\s*
+    (?P<unit_qty>\d*\.?\d+)\s*
+    (?P<unit_uom>lb|pound|oz|ounce|g|kg|ml|l|ct|each|ea)
+    \s*$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+UOM_MAP = {
+    "lb": "lb", "pound": "lb",
+    "oz": "oz", "ounce": "oz",
+    "g": "g", "kg": "kg",
+    "ml": "ml", "l": "L",
+    "ct": "each", "each": "each", "ea": "each",
+}
+
+def parse_packsize(s: str) -> tuple[int|None, float|None, str|None]:
+    if s is None:
+        return None, None, None
+    s = str(s).strip().lower().replace(" ", "")
+    s = s.replace("pounds", "lb").replace("pound", "lb").replace("ounces", "oz").replace("ounce", "oz")
+    s = s.replace("liter", "l").replace("liters", "l")
+    m = PACK_RE.match(s)
+    if not m:
+        return None, None, None
+    pack = int(m.group("pack_count"))
+    unit_qty = float(m.group("unit_qty"))
+    unit_uom = UOM_MAP.get(m.group("unit_uom"), m.group("unit_uom"))
+    return pack, unit_qty, unit_uom
+
+def compute_case_totals(pack, unit_qty, unit_uom) -> tuple[float|None, float|None]:
+    from .costing import to_oz
+    if pack is None or unit_qty is None or unit_uom is None:
+        return None, None
+    if unit_uom == "each":
+        return None, float(pack * unit_qty)
+    oz = to_oz(unit_qty, unit_uom)
+    if oz is None:
+        return None, None
+    return float(pack * oz), None
+
+REQUIRED_COLS = ["vendor", "item_number", "description", "pack_size", "price", "price_date"]
+
+def normalize_catalog(df: pd.DataFrame, conn) -> pd.DataFrame:
+    rows = []
+    for _, r in df.iterrows():
+        vendor = str(r.get("vendor", "")).strip() or "UNKNOWN"
+        item_number = str(r.get("item_number", "")).strip()
+        description = str(r.get("description", "")).strip()
+        pack_size_raw = str(r.get("pack_size", "")).strip()
+        price = to_float(r.get("price"))
+        price_date = str(r.get("price_date", "")).strip()
+
+        if not item_number:
+            add_exception(conn, "UNMAPPED_INGREDIENT", f"Missing item_number for {description}")
+            continue
+
+        pack, unit_qty, unit_uom = parse_packsize(pack_size_raw)
+        case_total_oz, case_total_each = compute_case_totals(pack, unit_qty, unit_uom)
+        cost_per_oz = (price / case_total_oz) if (case_total_oz and price) else None
+        cost_per_each = (price / case_total_each) if (case_total_each and price) else None
+
+        rows.append({
+            "vendor": vendor,
+            "item_number": item_number,
+            "description": description,
+            "pack_size_raw": pack_size_raw,
+            "pack_count": pack,
+            "unit_qty": unit_qty,
+            "unit_uom": unit_uom,
+            "case_total_oz": case_total_oz,
+            "case_total_each": case_total_each,
+            "price": price,
+            "price_date": price_date,
+            "cost_per_oz": cost_per_oz,
+            "cost_per_each": cost_per_each,
+        })
+    return pd.DataFrame(rows)

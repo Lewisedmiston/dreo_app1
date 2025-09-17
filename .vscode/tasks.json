@@ -1,0 +1,28 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run App",
+      "type": "shell",
+      "command": "streamlit run pages/1_🧾_Upload_Catalogs.py",
+      "options": {
+        "env": {
+          "FOOD_COST_TARGET_PCT": "35"
+        }
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Format",
+      "type": "shell",
+      "command": "python -m black .",
+      "problemMatcher": []
+    },
+    {
+      "label": "Lint",
+      "type": "shell",
+      "command": "python -m pip install ruff && ruff check .",
+      "problemMatcher": []
+    }
+  ]
+}
