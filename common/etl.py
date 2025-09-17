@@ -86,3 +86,48 @@ def normalize_catalog(df: pd.DataFrame, conn) -> pd.DataFrame:
             "cost_per_each": cost_per_each,
         })
     return pd.DataFrame(rows)
+
+def process_catalog_dataframe(df: pd.DataFrame, vendor_id: int) -> pd.DataFrame:
+    """Process uploaded catalog dataframe into the format expected by the database."""
+    from .db import get_conn
+    
+    processed_rows = []
+    with get_conn() as conn:
+        for _, row in df.iterrows():
+            # Map the expected columns from the upload page
+            vendor_item_code = str(row.get("vendor_item_code", "")).strip()
+            item_description = str(row.get("item_description", "")).strip()
+            pack_size_str = str(row.get("pack_size_str", "")).strip()
+            case_price = to_float(row.get("case_price"))
+            price_date = str(row.get("price_date", "")).strip()
+            
+            if not vendor_item_code:
+                add_exception(conn, "MISSING_ITEM_CODE", f"Missing vendor item code for {item_description}")
+                continue
+                
+            # Parse pack size information
+            pack_count, unit_qty, unit_uom = parse_packsize(pack_size_str)
+            case_total_oz, case_total_each = compute_case_totals(pack_count, unit_qty, unit_uom)
+            
+            # Calculate cost per unit
+            cost_per_oz = (case_price / case_total_oz) if (case_total_oz and case_price) else None
+            cost_per_each = (case_price / case_total_each) if (case_total_each and case_price) else None
+            
+            processed_rows.append({
+                "vendor_id": vendor_id,
+                "vendor_name": row.get("vendor_name", ""),  # This might be added later
+                "item_number": vendor_item_code,
+                "description": item_description,
+                "pack_size_raw": pack_size_str,
+                "pack_count": pack_count,
+                "unit_qty": unit_qty,
+                "unit_uom": unit_uom,
+                "case_total_oz": case_total_oz,
+                "case_total_each": case_total_each,
+                "price": case_price,
+                "price_date": price_date,
+                "cost_per_oz": cost_per_oz,
+                "cost_per_each": cost_per_each,
+            })
+    
+    return pd.DataFrame(processed_rows)
