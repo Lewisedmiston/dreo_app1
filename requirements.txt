@@ -5,3 +5,8 @@ openpyxl==3.1.5
 XlsxWriter==3.2.0
 python-dotenv==1.0.1
 python-dateutil==2.9.0.post0
+
+# Likely extras based on your code
+sqlalchemy        # if you're running SQL queries or models
+psycopg2-binary   # if you connect to Postgres
+requests          # if you fetch any data from APIs
