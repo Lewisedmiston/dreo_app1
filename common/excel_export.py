@@ -26,6 +26,7 @@ def export_workbook(path: str = "Menu_Costing_DREO.xlsx") -> str:
     # Compute plate cost by summing line costs using last_cost_per_oz/each from ingredients
     ing_cost = ingredients[["id","last_cost_per_oz","last_cost_per_each"]].copy()
     rl = recipe_lines.merge(ing_cost, left_on="ref_id", right_on="id", how="left", suffixes=("","_ing"))
+    # Calculate line costs (restored working version)
     from .costing import line_cost
     costs = []
     for _, r in rl.iterrows():

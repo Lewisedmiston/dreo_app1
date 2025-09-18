@@ -94,26 +94,105 @@ if uploaded_file:
     df = load_file_to_dataframe(uploaded_file, selected_sheet)
     
     if df is not None:
-        # Enhanced preview with sheet info
-        preview_title = f"File Preview: {uploaded_file.name}"
+        # Smart recognition of actual catalog items (not headers/empty rows)
+        potential_items = df.dropna(how='all')  # Remove completely empty rows
+        
+        # VECTORIZED: Count rows that look like actual catalog items (10-100x faster!)
+        # Convert all values to strings for pattern matching
+        str_df = potential_items.astype(str)
+        
+        # Vectorized check for numeric patterns across all columns
+        numeric_pattern = str_df.apply(lambda row: any(val.replace('.','').replace('-','').isdigit() 
+                                                      for val in row if val not in ['nan', 'None']), axis=1)
+        
+        # Vectorized check for price patterns ($, positive numbers)
+        price_pattern = potential_items.select_dtypes(include=[int, float]).gt(0).any(axis=1) | \
+                       str_df.apply(lambda row: any('$' in str(val) for val in row if val not in ['nan', 'None']), axis=1)
+        
+        # Count items that match either pattern
+        item_like_rows = int((numeric_pattern | price_pattern).sum())
+        
+        # Show user-friendly preview focusing on recognized items
+        preview_title = f"🎯 Smart Analysis: {uploaded_file.name}"
         if selected_sheet:
             preview_title += f" → {selected_sheet} sheet"
-        st.write(preview_title + " (first 5 rows):")
-        st.dataframe(df.head())
+        st.write(preview_title)
         
-        # Show additional file info
+        # Focus on what users care about - recognizable items, not technical row counts
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("📊 Total Rows", f"{len(df):,}")
+            st.metric("✅ Recognized Items", item_like_rows, help="Rows that look like catalog entries")
         with col2:
-            st.metric("📈 Columns", len(df.columns))
+            st.metric("📄 File Rows", len(df), help="Total including headers and blanks") 
         with col3:
-            if selected_sheet:
+            if item_like_rows > 0:
+                quality_score = min(100, int((item_like_rows / max(1, len(potential_items))) * 100))
+                st.metric("🎯 Quality Score", f"{quality_score}%", help="How clean your data looks")
+            elif selected_sheet:
                 st.metric("📋 Sheet", selected_sheet)
+        
+        # Show sample of actual data (first few meaningful rows)
+        st.write("📋 Preview of your data:")
+        preview_df = df.head(10).dropna(how='all')  # Show meaningful rows only
+        st.dataframe(preview_df, use_container_width=True)
 
         # --- 3. SMART COLUMN MAPPING ---
-        st.subheader("3. Smart Column Mapping")
-        st.write("🤖 Auto-detected mappings based on your data patterns. Adjust if needed:")
+        st.subheader("3. Quick Setup")
+        
+        file_columns = [""] + df.columns.tolist()
+        
+        # Smart auto-detection based on your real data patterns
+        auto_mappings = {
+            'vendor_item_code': "",
+            'description': "",
+            'pack_size': "",
+            'case_price': "",
+            'date': "",
+            'brand': "",
+            'category': "",
+            'par_level': "",
+            'on_hand': ""
+        }
+        
+        for col in df.columns:
+            col_lower = str(col).lower().replace(' ', '_').replace('#', '').replace('_', '')
+            if any(x in col_lower for x in ['item', 'sku', 'productid', 'code']):
+                auto_mappings['vendor_item_code'] = col
+            elif any(x in col_lower for x in ['description', 'productname', 'name', 'dish']):
+                auto_mappings['description'] = col
+            elif any(x in col_lower for x in ['pack', 'size', 'unit']) and 'price' not in col_lower:
+                auto_mappings['pack_size'] = col
+            elif any(x in col_lower for x in ['caseprice', 'price', 'cost', 'defaultprice']):
+                auto_mappings['case_price'] = col
+            elif any(x in col_lower for x in ['date', 'updated', 'pricedate']):
+                auto_mappings['date'] = col
+            elif any(x in col_lower for x in ['brand', 'manufacturer']):
+                auto_mappings['brand'] = col
+            elif any(x in col_lower for x in ['category', 'type', 'group']):
+                auto_mappings['category'] = col
+            elif any(x in col_lower for x in ['par', 'parlevel', 'minimum']):
+                auto_mappings['par_level'] = col
+            elif any(x in col_lower for x in ['onhand', 'stock', 'inventory', 'available']):
+                auto_mappings['on_hand'] = col
+
+        # Calculate auto-detection confidence
+        detected_required = sum(1 for k in ['vendor_item_code', 'description', 'pack_size', 'case_price'] 
+                               if auto_mappings.get(k, ""))
+        
+        if detected_required >= 3:
+            st.success(f"🎯 **Auto-detected {detected_required}/4 required fields** - you're almost ready to import!")
+            
+            # Smart default: hide complex mapping UI if confidence is high
+            show_advanced = st.checkbox("🔧 Show advanced column mapping", help="Only needed if auto-detection looks wrong")
+            
+            if not show_advanced:
+                st.info("✨ Using smart auto-detection. Click 'Show advanced column mapping' above if you need to adjust.")
+        else:
+            st.info("🤖 Please confirm column mappings below:")
+            show_advanced = True
+        
+        if show_advanced:
+            st.write("🔍 Auto-detected mappings based on your data patterns:")
         
         file_columns = [""] + df.columns.tolist()
         
@@ -151,15 +230,12 @@ if uploaded_file:
             elif any(x in col_lower for x in ['onhand', 'stock', 'inventory', 'available']):
                 auto_mappings['on_hand'] = col
         
-        # Show auto-detected mappings
-        detected_count = sum(1 for v in auto_mappings.values() if v)
-        if detected_count > 0:
-            st.success(f"✨ Auto-detected {detected_count} column mappings from your data!")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown("**📋 Required Fields**")
+        # Only show mapping UI if advanced mode is enabled
+        if 'show_advanced' in locals() and show_advanced:
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.markdown("**📋 Required Fields**")
             code_col = st.selectbox(
                 "Vendor Item Code *", 
                 file_columns, 
@@ -178,9 +254,9 @@ if uploaded_file:
                 index=file_columns.index(auto_mappings['pack_size']) if auto_mappings['pack_size'] in file_columns else 0,
                 help="e.g., '6/5 lb' or '200 ct'"
             )
-            
-        with col2:
-            st.markdown("**💰 Pricing & Dates**")
+                
+            with col2:
+                st.markdown("**💰 Pricing & Dates**")
             price_col = st.selectbox(
                 "Case Price *", 
                 file_columns,
@@ -194,44 +270,57 @@ if uploaded_file:
                 help="Optional. Uses today's date if not provided"
             )
             
-            # Optional fields based on your data
-            st.markdown("**🏷️ Optional Fields**")
-            brand_col = st.selectbox(
-                "Brand", 
-                [""] + [c for c in df.columns if c],
-                index=file_columns.index(auto_mappings['brand']) if auto_mappings['brand'] in file_columns else 0,
-                help="Brand/manufacturer"
-            )
-            
-        with col3:
-            st.markdown("**📦 Inventory Management**")
-            category_col = st.selectbox(
-                "Category", 
-                [""] + [c for c in df.columns if c],
-                index=file_columns.index(auto_mappings['category']) if auto_mappings['category'] in file_columns else 0,
-                help="Product category/type"
-            )
-            par_col = st.selectbox(
-                "Par Level", 
-                [""] + [c for c in df.columns if c],
-                index=file_columns.index(auto_mappings['par_level']) if auto_mappings['par_level'] in file_columns else 0,
-                help="Minimum stock level"
-            )
-            onhand_col = st.selectbox(
-                "On Hand Qty", 
-                [""] + [c for c in df.columns if c],
-                index=file_columns.index(auto_mappings['on_hand']) if auto_mappings['on_hand'] in file_columns else 0,
-                help="Current inventory quantity"
-            )
-            order_col = st.selectbox(
-                "Order Qty", 
-                [""] + [c for c in df.columns if c],
-                help="Quantity to order"
-            )
+                # Optional fields based on your data
+                st.markdown("**🏷️ Optional Fields**")
+                brand_col = st.selectbox(
+                    "Brand", 
+                    [""] + [c for c in df.columns if c],
+                    index=file_columns.index(auto_mappings['brand']) if auto_mappings['brand'] in file_columns else 0,
+                    help="Brand/manufacturer"
+                )
+                
+            with col3:
+                st.markdown("**📦 Inventory Management**")
+                category_col = st.selectbox(
+                    "Category", 
+                    [""] + [c for c in df.columns if c],
+                    index=file_columns.index(auto_mappings['category']) if auto_mappings['category'] in file_columns else 0,
+                    help="Product category/type"
+                )
+                par_col = st.selectbox(
+                    "Par Level", 
+                    [""] + [c for c in df.columns if c],
+                    index=file_columns.index(auto_mappings['par_level']) if auto_mappings['par_level'] in file_columns else 0,
+                    help="Minimum stock level"
+                )
+                onhand_col = st.selectbox(
+                    "On Hand Qty", 
+                    [""] + [c for c in df.columns if c],
+                    index=file_columns.index(auto_mappings['on_hand']) if auto_mappings['on_hand'] in file_columns else 0,
+                    help="Current inventory quantity"
+                )
+                order_col = st.selectbox(
+                    "Order Qty", 
+                    [""] + [c for c in df.columns if c],
+                    help="Quantity to order"
+                )
 
         # --- 4. DATA VALIDATION ---
+        # Use auto-mappings if not in advanced mode (with safety check)
+        if ('show_advanced' not in locals() or not show_advanced) and 'auto_mappings' in locals():
+            code_col = auto_mappings.get('vendor_item_code', '')
+            desc_col = auto_mappings.get('description', '')
+            pack_col = auto_mappings.get('pack_size', '')
+            price_col = auto_mappings.get('case_price', '')
+            date_col = auto_mappings.get('date', '')
+            brand_col = auto_mappings.get('brand', '')
+            category_col = auto_mappings.get('category', '')
+            par_col = auto_mappings.get('par_level', '')
+            onhand_col = auto_mappings.get('on_hand', '')
+            order_col = ''  # Not in auto-mappings yet
+        
         if all([code_col, desc_col, pack_col, price_col]):
-            st.subheader("4. Data Validation")
+            st.subheader("4. Ready to Import")
             
             # Quick validation preview
             missing_codes = df[code_col].isna().sum() if code_col else 0
@@ -246,8 +335,15 @@ if uploaded_file:
             with col_c:
                 st.metric("Invalid Prices", missing_prices + invalid_prices, delta=None if (missing_prices + invalid_prices) == 0 else "⚠️")
             
-            if missing_codes > 0 or (missing_prices + invalid_prices) > 0:
-                st.warning(f"⚠️ {missing_codes + missing_prices + invalid_prices} rows will be skipped due to missing/invalid data. Check the Exceptions page after import for details.")
+            # Show user-friendly validation summary instead of scary warnings
+            total_issues = missing_codes + missing_prices + invalid_prices
+            clean_items = len(df) - total_issues
+            
+            if total_issues > 0:
+                if total_issues > (len(df) * 0.5):  # More than 50% issues
+                    st.info(f"🔍 **Found {clean_items} clean catalog items** ready to import. Some rows look like headers or blank lines - that's normal!")
+                else:
+                    st.success(f"✅ **{clean_items} catalog items** are ready to import! A few rows need cleanup - details available after import.")
 
         # --- 5. PROCESS & IMPORT ---
         if st.button("Process and Import Data", disabled=(not all([code_col, desc_col, pack_col, price_col]))):

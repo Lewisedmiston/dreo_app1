@@ -6,11 +6,36 @@ from contextlib import contextmanager
 from .settings import DB_PATH
 from .utils import iso_today, iso_now
 
+import streamlit as st
+
+# Global connection pool to avoid opening new connections constantly
+_connection_pool = None
+
 def get_conn():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key enforcement
-    return conn
+    """Get database connection with smart pooling for performance."""
+    global _connection_pool
+    
+    # Use Streamlit session state for connection pooling
+    if hasattr(st, 'session_state'):
+        if 'db_connection' not in st.session_state or st.session_state.db_connection is None:
+            conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key enforcement
+            conn.execute("PRAGMA journal_mode = WAL")  # Performance optimization
+            conn.execute("PRAGMA synchronous = NORMAL")  # Balance safety vs speed
+            conn.execute("PRAGMA cache_size = -64000")  # 64MB cache
+            st.session_state.db_connection = conn
+        return st.session_state.db_connection
+    else:
+        # Fallback for non-Streamlit contexts
+        if _connection_pool is None:
+            _connection_pool = sqlite3.connect(DB_PATH, check_same_thread=False)
+            _connection_pool.row_factory = sqlite3.Row
+            _connection_pool.execute("PRAGMA foreign_keys = ON")
+            _connection_pool.execute("PRAGMA journal_mode = WAL")
+            _connection_pool.execute("PRAGMA synchronous = NORMAL") 
+            _connection_pool.execute("PRAGMA cache_size = -64000")
+        return _connection_pool
 
 def init_db():
     sql_path = pathlib.Path(__file__).with_name("models.sql")

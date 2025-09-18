@@ -197,13 +197,14 @@ def process_catalog_dataframe(df: pd.DataFrame, vendor_id: int) -> pd.DataFrame:
     
     if not result_df.empty:
         # Final cleanup: ensure no NaN/NULL values in required fields
-        result_df = result_df.dropna(subset=['price', 'price_date', 'item_number', 'vendor_id'])
+        result_df = result_df.dropna(subset=['price', 'price_date', 'item_number', 'vendor_id']).copy()
         
         # Ensure price is numeric and positive
-        result_df = result_df[result_df['price'] > 0]
+        result_df = result_df[result_df['price'] > 0].copy()
         
-        # Ensure price_date is not empty
-        result_df = result_df[result_df['price_date'].astype(str).str.strip() != '']
+        # Ensure price_date is not empty (convert to string first, then filter)
+        price_date_mask = result_df['price_date'].astype(str).str.strip() != ''
+        result_df = result_df[price_date_mask].copy()
         
         # Replace any remaining NaN values with safe defaults
         result_df = result_df.fillna({
