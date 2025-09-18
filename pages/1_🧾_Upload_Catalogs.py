@@ -16,12 +16,12 @@ vendor_name = st.selectbox("Choose a vendor for this catalog:", KNOWN_VENDORS)
 
 # Get or create vendor_id
 if vendor_name:
-    vendor = execute_query("SELECT vendor_id FROM vendors WHERE vendor_name = ?", (vendor_name,), fetch='one')
+    vendor = execute_query("SELECT id FROM vendors WHERE name = ?", (vendor_name,), fetch='one')
     if vendor:
-        vendor_id = vendor['vendor_id']
+        vendor_id = vendor['id']
     else:
         # Insert new vendor and get its ID
-        vendor_id = execute_query("INSERT INTO vendors (vendor_name) VALUES (?)", (vendor_name,))
+        vendor_id = execute_query("INSERT INTO vendors (name) VALUES (?)", (vendor_name,))
         st.success(f"Added new vendor '{vendor_name}' to the database.")
 
 # --- 2. FILE UPLOAD ---
@@ -101,6 +101,6 @@ if uploaded_file:
 
 # --- Display latest imports ---
 st.subheader("Recent Catalog Imports")
-df_log = pd_read_sql("SELECT log_timestamp, event_type, details FROM changelog WHERE event_type = 'CATALOG_IMPORT' ORDER BY log_timestamp DESC LIMIT 10")
+df_log = pd_read_sql("SELECT event_time, action, details FROM changelog WHERE action = 'CATALOG_IMPORT' ORDER BY event_time DESC LIMIT 10")
 st.dataframe(df_log, use_container_width=True)
 
