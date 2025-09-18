@@ -2,6 +2,7 @@ from __future__ import annotations
 import sqlite3, pathlib
 import pandas as pd
 from typing import Any, Optional, Tuple
+from contextlib import contextmanager
 from .settings import DB_PATH
 from .utils import iso_today, iso_now
 
