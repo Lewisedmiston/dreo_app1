@@ -35,6 +35,10 @@ waitForPort = 5000
 localPort = 5000
 externalPort = 80
 
+[[ports]]
+localPort = 35989
+externalPort = 3000
+
 [deployment]
 deploymentTarget = "autoscale"
 run = ["streamlit", "run", "pages/1_🧾_Upload_Catalogs.py", "--server.port=5000", "--server.address=0.0.0.0", "--server.headless=true"]
