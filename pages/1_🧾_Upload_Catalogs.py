@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
-from common.utils import page_setup, load_file_to_dataframe
+from common.utils import page_setup, load_file_to_dataframe, get_excel_sheet_names, detect_vendor_from_sheet_name
 from common.settings import KNOWN_VENDORS
 from common.db import execute_query, pd_read_sql, log_change, create_exception, get_db_connection, ensure_db_initialized
 from common.etl import process_catalog_dataframe
@@ -24,7 +24,14 @@ def get_vendor_id(vendor_name):
 
 # --- 1. VENDOR SELECTION ---
 st.subheader("1. Select Vendor")
-vendor_name = st.selectbox("Choose a vendor for this catalog:", KNOWN_VENDORS)
+
+# Auto-select vendor if detected from sheet
+default_vendor_index = 0
+if 'auto_detected_vendor' in st.session_state and st.session_state.auto_detected_vendor in KNOWN_VENDORS:
+    default_vendor_index = KNOWN_VENDORS.index(st.session_state.auto_detected_vendor)
+    st.info(f"🤖 Auto-selected **{st.session_state.auto_detected_vendor}** based on sheet detection")
+
+vendor_name = st.selectbox("Choose a vendor for this catalog:", KNOWN_VENDORS, index=default_vendor_index)
 
 # Get or create vendor_id with caching
 if vendor_name:
@@ -41,27 +48,186 @@ st.subheader("2. Upload File")
 uploaded_file = st.file_uploader("Drag and drop your file here or click to browse", type=["csv", "xlsx", "xls"])
 
 if uploaded_file:
-    df = load_file_to_dataframe(uploaded_file)
+    # --- 2.5. SHEET SELECTION (for Excel files) ---
+    selected_sheet = None
+    if uploaded_file.name.endswith(('.xlsx', '.xls')):
+        sheet_names = get_excel_sheet_names(uploaded_file)
+        if sheet_names and len(sheet_names) > 1:
+            st.subheader("2.5. Select Sheet")
+            st.info(f"📊 Found {len(sheet_names)} sheets in your Excel file. Choose which one to import:")
+            
+            # Smart suggestions based on your real data patterns
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                selected_sheet = st.selectbox(
+                    "Choose sheet to import:", 
+                    sheet_names,
+                    format_func=lambda x: f"{x} → {detect_vendor_from_sheet_name(x)}"
+                )
+            with col2:
+                if st.button("🔄 Refresh Sheets"):
+                    # Clear session state cache for this file
+                    file_hash = hash(uploaded_file.getvalue())
+                    cache_key = f"sheets_{uploaded_file.name}_{file_hash}"
+                    if cache_key in st.session_state:
+                        del st.session_state[cache_key]
+                    st.rerun()
+            
+            # Auto-detect and suggest vendor based on sheet name
+            suggested_vendor = detect_vendor_from_sheet_name(selected_sheet)
+            # Try to match with known vendors (case insensitive)
+            matched_vendor = None
+            for known_vendor in KNOWN_VENDORS:
+                if suggested_vendor.lower() in known_vendor.lower() or known_vendor.lower() in suggested_vendor.lower():
+                    matched_vendor = known_vendor
+                    break
+            
+            if matched_vendor:
+                st.success(f"💡 Auto-detected vendor: **{matched_vendor}** - auto-selecting!")
+                # Store auto-detected vendor in session state and trigger rerun for immediate update
+                if 'auto_detected_vendor' not in st.session_state or st.session_state.auto_detected_vendor != matched_vendor:
+                    st.session_state.auto_detected_vendor = matched_vendor
+                    st.rerun()
+            else:
+                st.info(f"💡 Detected: **{suggested_vendor}** (not in known vendors - please select manually)")
+    
+    df = load_file_to_dataframe(uploaded_file, selected_sheet)
     
     if df is not None:
-        st.write("File Preview (first 5 rows):")
+        # Enhanced preview with sheet info
+        preview_title = f"File Preview: {uploaded_file.name}"
+        if selected_sheet:
+            preview_title += f" → {selected_sheet} sheet"
+        st.write(preview_title + " (first 5 rows):")
         st.dataframe(df.head())
+        
+        # Show additional file info
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📊 Total Rows", f"{len(df):,}")
+        with col2:
+            st.metric("📈 Columns", len(df.columns))
+        with col3:
+            if selected_sheet:
+                st.metric("📋 Sheet", selected_sheet)
 
-        # --- 3. COLUMN MAPPING ---
-        st.subheader("3. Map Columns")
-        st.write("Match the columns from your file to the required fields.")
+        # --- 3. SMART COLUMN MAPPING ---
+        st.subheader("3. Smart Column Mapping")
+        st.write("🤖 Auto-detected mappings based on your data patterns. Adjust if needed:")
         
         file_columns = [""] + df.columns.tolist()
+        
+        # Smart auto-detection based on your real data patterns
+        auto_mappings = {
+            'vendor_item_code': "",
+            'description': "",
+            'pack_size': "",
+            'case_price': "",
+            'date': "",
+            'brand': "",
+            'category': "",
+            'par_level': "",
+            'on_hand': ""
+        }
+        
+        for col in df.columns:
+            col_lower = str(col).lower().replace(' ', '_').replace('#', '').replace('_', '')
+            if any(x in col_lower for x in ['item', 'sku', 'productid', 'code']):
+                auto_mappings['vendor_item_code'] = col
+            elif any(x in col_lower for x in ['description', 'productname', 'name', 'dish']):
+                auto_mappings['description'] = col
+            elif any(x in col_lower for x in ['pack', 'size', 'unit']) and 'price' not in col_lower:
+                auto_mappings['pack_size'] = col
+            elif any(x in col_lower for x in ['caseprice', 'price', 'cost', 'defaultprice']):
+                auto_mappings['case_price'] = col
+            elif any(x in col_lower for x in ['date', 'updated', 'pricedate']):
+                auto_mappings['date'] = col
+            elif any(x in col_lower for x in ['brand', 'manufacturer']):
+                auto_mappings['brand'] = col
+            elif any(x in col_lower for x in ['category', 'type', 'group']):
+                auto_mappings['category'] = col
+            elif any(x in col_lower for x in ['par', 'parlevel', 'minimum']):
+                auto_mappings['par_level'] = col
+            elif any(x in col_lower for x in ['onhand', 'stock', 'inventory', 'available']):
+                auto_mappings['on_hand'] = col
+        
+        # Show auto-detected mappings
+        detected_count = sum(1 for v in auto_mappings.values() if v)
+        if detected_count > 0:
+            st.success(f"✨ Auto-detected {detected_count} column mappings from your data!")
+        
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            code_col = st.selectbox("Vendor Item Code *", file_columns, help="Unique code for the item from the vendor.")
-            desc_col = st.selectbox("Item Description *", file_columns, help="The name or description of the item.")
+            st.markdown("**📋 Required Fields**")
+            code_col = st.selectbox(
+                "Vendor Item Code *", 
+                file_columns, 
+                index=file_columns.index(auto_mappings['vendor_item_code']) if auto_mappings['vendor_item_code'] in file_columns else 0,
+                help="Unique code/SKU for the item"
+            )
+            desc_col = st.selectbox(
+                "Item Description *", 
+                file_columns,
+                index=file_columns.index(auto_mappings['description']) if auto_mappings['description'] in file_columns else 0,
+                help="Name or description of the item"
+            )
+            pack_col = st.selectbox(
+                "Pack/Size String *", 
+                file_columns,
+                index=file_columns.index(auto_mappings['pack_size']) if auto_mappings['pack_size'] in file_columns else 0,
+                help="e.g., '6/5 lb' or '200 ct'"
+            )
+            
         with col2:
-            pack_col = st.selectbox("Pack/Size String *", file_columns, help="e.g., '6/5 lb' or '200 ct'.")
-            price_col = st.selectbox("Case Price *", file_columns, help="The price for the entire case.")
+            st.markdown("**💰 Pricing & Dates**")
+            price_col = st.selectbox(
+                "Case Price *", 
+                file_columns,
+                index=file_columns.index(auto_mappings['case_price']) if auto_mappings['case_price'] in file_columns else 0,
+                help="Price for the entire case"
+            )
+            date_col = st.selectbox(
+                "Price Date", 
+                file_columns,
+                index=file_columns.index(auto_mappings['date']) if auto_mappings['date'] in file_columns else 0,
+                help="Optional. Uses today's date if not provided"
+            )
+            
+            # Optional fields based on your data
+            st.markdown("**🏷️ Optional Fields**")
+            brand_col = st.selectbox(
+                "Brand", 
+                [""] + [c for c in df.columns if c],
+                index=file_columns.index(auto_mappings['brand']) if auto_mappings['brand'] in file_columns else 0,
+                help="Brand/manufacturer"
+            )
+            
         with col3:
-            date_col = st.selectbox("Price Date", file_columns, help="Optional. If not provided, today's date will be used.")
+            st.markdown("**📦 Inventory Management**")
+            category_col = st.selectbox(
+                "Category", 
+                [""] + [c for c in df.columns if c],
+                index=file_columns.index(auto_mappings['category']) if auto_mappings['category'] in file_columns else 0,
+                help="Product category/type"
+            )
+            par_col = st.selectbox(
+                "Par Level", 
+                [""] + [c for c in df.columns if c],
+                index=file_columns.index(auto_mappings['par_level']) if auto_mappings['par_level'] in file_columns else 0,
+                help="Minimum stock level"
+            )
+            onhand_col = st.selectbox(
+                "On Hand Qty", 
+                [""] + [c for c in df.columns if c],
+                index=file_columns.index(auto_mappings['on_hand']) if auto_mappings['on_hand'] in file_columns else 0,
+                help="Current inventory quantity"
+            )
+            order_col = st.selectbox(
+                "Order Qty", 
+                [""] + [c for c in df.columns if c],
+                help="Quantity to order"
+            )
 
         # --- 4. DATA VALIDATION ---
         if all([code_col, desc_col, pack_col, price_col]):
@@ -86,13 +252,40 @@ if uploaded_file:
         # --- 5. PROCESS & IMPORT ---
         if st.button("Process and Import Data", disabled=(not all([code_col, desc_col, pack_col, price_col]))):
             with st.spinner("Processing and validating data..."):
-                # Rename columns based on mapping
-                df_mapped = df.rename(columns={
+                # Add inventory columns to database if they don't exist
+                with get_db_connection() as conn:
+                    # Add new columns safely (will skip if they already exist)
+                    try:
+                        conn.execute("ALTER TABLE catalog_items ADD COLUMN brand TEXT")
+                        conn.execute("ALTER TABLE catalog_items ADD COLUMN category TEXT") 
+                        conn.execute("ALTER TABLE catalog_items ADD COLUMN par_level REAL")
+                        conn.execute("ALTER TABLE catalog_items ADD COLUMN on_hand_qty REAL")
+                        conn.execute("ALTER TABLE catalog_items ADD COLUMN order_qty REAL")
+                        conn.commit()
+                    except Exception:
+                        pass  # Columns already exist
+                
+                # Enhanced column mapping including inventory fields
+                column_mapping = {
                     code_col: "vendor_item_code",
-                    desc_col: "item_description",
+                    desc_col: "item_description", 
                     pack_col: "pack_size_str",
                     price_col: "case_price",
-                })
+                }
+                
+                # Add optional inventory columns if mapped
+                if brand_col:
+                    column_mapping[brand_col] = "brand"
+                if category_col:
+                    column_mapping[category_col] = "category"
+                if par_col:
+                    column_mapping[par_col] = "par_level"
+                if onhand_col:
+                    column_mapping[onhand_col] = "on_hand_qty"
+                if order_col:
+                    column_mapping[order_col] = "order_qty"
+                
+                df_mapped = df.rename(columns=column_mapping)
                 
                 # Handle date column with robust error handling
                 if date_col and date_col != "":
@@ -113,9 +306,13 @@ if uploaded_file:
                 else:
                     df_mapped['price_date'] = date.today()
 
-                # Filter to only necessary columns
+                # Filter to required and optional columns that exist in mapped data
                 required_cols = ["vendor_item_code", "item_description", "pack_size_str", "case_price", "price_date"]
-                df_to_process = df_mapped[required_cols]
+                optional_cols = ["brand", "category", "par_level", "on_hand_qty", "order_qty"]
+                
+                # Include only columns that exist in the mapped dataframe
+                cols_to_process = required_cols + [col for col in optional_cols if col in df_mapped.columns]
+                df_to_process = df_mapped[cols_to_process]
                 total_rows = len(df_to_process)  # Track total for status messages
 
                 # Pre-clean the dataframe before processing

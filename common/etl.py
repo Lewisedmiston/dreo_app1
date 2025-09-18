@@ -157,7 +157,8 @@ def process_catalog_dataframe(df: pd.DataFrame, vendor_id: int) -> pd.DataFrame:
             cost_per_oz = (case_price / case_total_oz) if (case_total_oz and case_price) else None
             cost_per_each = (case_price / case_total_each) if (case_total_each and case_price) else None
             
-            processed_rows.append({
+            # Build base row data
+            row_data = {
                 "vendor_id": vendor_id,
                 "vendor_name": "",  # Will be populated in upload page
                 "item_number": vendor_item_code,
@@ -172,7 +173,24 @@ def process_catalog_dataframe(df: pd.DataFrame, vendor_id: int) -> pd.DataFrame:
                 "price_date": price_date,
                 "cost_per_oz": cost_per_oz,
                 "cost_per_each": cost_per_each,
-            })
+            }
+            
+            # Add inventory fields if they exist in the input data (handle both naming conventions)
+            if "brand" in row:
+                row_data["brand"] = str(row.get("brand", "")).strip()
+            if "category" in row:
+                row_data["category"] = str(row.get("category", "")).strip()
+            if "par_level" in row:
+                par_val = row.get("par_level")
+                row_data["par_level"] = to_float(par_val) if par_val is not None else None
+            if "on_hand_qty" in row or "on_hand" in row:
+                onhand_val = row.get("on_hand_qty") or row.get("on_hand")
+                row_data["on_hand_qty"] = to_float(onhand_val) if onhand_val is not None else None
+            if "order_qty" in row:
+                order_val = row.get("order_qty")
+                row_data["order_qty"] = to_float(order_val) if order_val is not None else None
+                
+            processed_rows.append(row_data)
     
     # Create DataFrame and perform final validation
     result_df = pd.DataFrame(processed_rows)

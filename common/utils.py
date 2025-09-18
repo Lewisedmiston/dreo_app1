@@ -72,27 +72,79 @@ def smart_cache_key(*args, **kwargs):
     key_str = str(args) + str(sorted(kwargs.items()))
     return hashlib.md5(key_str.encode()).hexdigest()
 
-@st.cache_data(show_spinner="📂 Loading file...")
-def load_file_to_dataframe(uploaded_file) -> Optional[pd.DataFrame]:
-    """Load an uploaded file (CSV or Excel) into a pandas DataFrame with caching."""
+def load_file_to_dataframe(uploaded_file, sheet_name=None) -> Optional[pd.DataFrame]:
+    """Load an uploaded file (CSV or Excel) into a pandas DataFrame with multi-sheet support."""
     if uploaded_file is None:
         return None
     
     try:
-        # Cache based on file name and size for better performance
-        file_key = f"{uploaded_file.name}_{uploaded_file.size}"
+        # Use file content hash for stable caching instead of UploadedFile object
+        file_hash = hash(uploaded_file.getvalue())
+        cache_key = f"{uploaded_file.name}_{file_hash}_{sheet_name or 'default'}"
         
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        elif uploaded_file.name.endswith(('.xlsx', '.xls')):
-            df = pd.read_excel(uploaded_file)
-        else:
-            st.error("Unsupported file format. Please upload a CSV or Excel file.")
-            return None
-        return df
+        # Simple session state caching to avoid UploadedFile hashing issues
+        if hasattr(st, 'session_state') and cache_key in st.session_state:
+            return st.session_state[cache_key]
+        
+        with st.spinner("📂 Loading file..."):
+            if uploaded_file.name.endswith('.csv'):
+                df = pd.read_csv(uploaded_file)
+            elif uploaded_file.name.endswith(('.xlsx', '.xls')):
+                if sheet_name:
+                    df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
+                else:
+                    df = pd.read_excel(uploaded_file)
+            else:
+                st.error("Unsupported file format. Please upload a CSV or Excel file.")
+                return None
+            
+            # Cache in session state
+            if hasattr(st, 'session_state'):
+                st.session_state[cache_key] = df
+            
+            return df
     except Exception as e:
         st.error(f"Error reading file: {e}")
         return None
+
+def get_excel_sheet_names(uploaded_file) -> Optional[list]:
+    """Get sheet names from an Excel file with session caching."""
+    if uploaded_file is None or not uploaded_file.name.endswith(('.xlsx', '.xls')):
+        return None
+    
+    try:
+        # Use file hash for caching
+        file_hash = hash(uploaded_file.getvalue()) 
+        cache_key = f"sheets_{uploaded_file.name}_{file_hash}"
+        
+        if hasattr(st, 'session_state') and cache_key in st.session_state:
+            return st.session_state[cache_key]
+        
+        with st.spinner("🔍 Analyzing file..."):
+            xl = pd.ExcelFile(uploaded_file)
+            sheet_names = xl.sheet_names
+            
+            # Cache result
+            if hasattr(st, 'session_state'):
+                st.session_state[cache_key] = sheet_names
+            
+            return sheet_names
+    except Exception as e:
+        st.error(f"Error reading Excel sheets: {e}")
+        return None
+
+def detect_vendor_from_sheet_name(sheet_name: str) -> str:
+    """Smart vendor detection based on sheet names from your real data."""
+    sheet_lower = sheet_name.lower()
+    if 'sysco' in sheet_lower:
+        return 'Sysco'
+    elif 'pfg' in sheet_lower:
+        return 'PFG Performance Food Group'
+    elif 'produce' in sheet_lower:
+        return 'Produce Vendor'
+    elif 'order' in sheet_lower:
+        return 'Order Guide'
+    return sheet_name.title()
 
 def clear_data_caches():
     """Clear all data caches when data is modified."""
