@@ -101,5 +101,6 @@ def clear_data_caches():
     # Also clear session state cache if it exists
     if hasattr(st, 'session_state'):
         for key in list(st.session_state.keys()):
-            if 'cache' in key.lower() or 'df' in key.lower():
+            key_str = str(key).lower()
+            if 'cache' in key_str or 'df' in key_str:
                 del st.session_state[key]
