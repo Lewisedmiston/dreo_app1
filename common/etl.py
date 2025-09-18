@@ -1,6 +1,7 @@
 from __future__ import annotations
 import re
 import pandas as pd
+import numpy as np
 from .utils import to_float
 from .db import add_exception
 
@@ -129,8 +130,16 @@ def process_catalog_dataframe(df: pd.DataFrame, vendor_id: int) -> pd.DataFrame:
                 add_exception(conn, "MISSING_ITEM_CODE", f"Missing vendor item code for {item_description}")
                 continue
                 
-            # Skip rows with missing or invalid prices - be more strict
-            if case_price is None or case_price <= 0 or not isinstance(case_price, (int, float)) or str(case_price).strip() == "":
+            # Skip rows with missing or invalid prices - comprehensive validation
+            if (
+                case_price is None or 
+                case_price <= 0 or 
+                not isinstance(case_price, (int, float)) or 
+                str(case_price).strip() == "" or
+                str(case_price).lower() in ['nan', 'null', 'none', ''] or
+                pd.isna(case_price) or
+                pd.isnull(case_price)
+            ):
                 add_exception(conn, "MISSING_PRICE", f"Missing or invalid price for item {vendor_item_code}: {item_description} (price: {repr(case_price)})")
                 continue
                 
@@ -165,4 +174,26 @@ def process_catalog_dataframe(df: pd.DataFrame, vendor_id: int) -> pd.DataFrame:
                 "cost_per_each": cost_per_each,
             })
     
-    return pd.DataFrame(processed_rows)
+    # Create DataFrame and perform final validation
+    result_df = pd.DataFrame(processed_rows)
+    
+    if not result_df.empty:
+        # Final cleanup: ensure no NaN/NULL values in required fields
+        result_df = result_df.dropna(subset=['price', 'price_date', 'item_number', 'vendor_id'])
+        
+        # Ensure price is numeric and positive
+        result_df = result_df[result_df['price'] > 0]
+        
+        # Ensure price_date is not empty
+        result_df = result_df[result_df['price_date'].astype(str).str.strip() != '']
+        
+        # Replace any remaining NaN values with safe defaults
+        result_df = result_df.fillna({
+            'description': '',
+            'pack_size_raw': '',
+            'unit_uom': '',
+            'cost_per_oz': 0.0,
+            'cost_per_each': 0.0
+        })
+    
+    return result_df
