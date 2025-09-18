@@ -5,10 +5,22 @@ from .utils import to_float
 from .db import add_exception
 
 # Robust pack/size parser for patterns like '6/5 lb', '12/32 oz', '200 ct'
+# Patterns for pack/size parsing - handles both "6/5 lb" and "200 ct" formats
 PACK_RE = re.compile(
     r"""
     ^\s*
     (?P<pack_count>\d+)\s*[/x]\s*
+    (?P<unit_qty>\d*\.?\d+)\s*
+    (?P<unit_uom>lb|pound|oz|ounce|g|kg|ml|l|ct|each|ea)
+    \s*$
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+# Single unit pattern for cases like "200 ct", "5 lb", etc.
+SINGLE_UNIT_RE = re.compile(
+    r"""
+    ^\s*
     (?P<unit_qty>\d*\.?\d+)\s*
     (?P<unit_uom>lb|pound|oz|ounce|g|kg|ml|l|ct|each|ea)
     \s*$
@@ -27,16 +39,28 @@ UOM_MAP = {
 def parse_packsize(s: str) -> tuple[int|None, float|None, str|None]:
     if s is None:
         return None, None, None
-    s = str(s).strip().lower().replace(" ", "")
+    original = str(s).strip()
+    s = original.lower().replace(" ", "")
     s = s.replace("pounds", "lb").replace("pound", "lb").replace("ounces", "oz").replace("ounce", "oz")
     s = s.replace("liter", "l").replace("liters", "l")
+    
+    # Try pack/unit pattern first (e.g., "6/5 lb")
     m = PACK_RE.match(s)
-    if not m:
-        return None, None, None
-    pack = int(m.group("pack_count"))
-    unit_qty = float(m.group("unit_qty"))
-    unit_uom = UOM_MAP.get(m.group("unit_uom"), m.group("unit_uom"))
-    return pack, unit_qty, unit_uom
+    if m:
+        pack = int(m.group("pack_count"))
+        unit_qty = float(m.group("unit_qty"))
+        unit_uom = UOM_MAP.get(m.group("unit_uom"), m.group("unit_uom"))
+        return pack, unit_qty, unit_uom
+    
+    # Try single unit pattern (e.g., "200 ct", "5 lb")
+    m = SINGLE_UNIT_RE.match(s)
+    if m:
+        unit_qty = float(m.group("unit_qty"))
+        unit_uom = UOM_MAP.get(m.group("unit_uom"), m.group("unit_uom"))
+        # For single units, assume pack count of 1
+        return 1, unit_qty, unit_uom
+    
+    return None, None, None
 
 def compute_case_totals(pack, unit_qty, unit_uom) -> tuple[float|None, float|None]:
     from .costing import to_oz
@@ -115,7 +139,7 @@ def process_catalog_dataframe(df: pd.DataFrame, vendor_id: int) -> pd.DataFrame:
             
             processed_rows.append({
                 "vendor_id": vendor_id,
-                "vendor_name": row.get("vendor_name", ""),  # This might be added later
+                "vendor_name": "",  # Will be populated in upload page
                 "item_number": vendor_item_code,
                 "description": item_description,
                 "pack_size_raw": pack_size_str,

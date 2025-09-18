@@ -3,11 +3,12 @@ import sqlite3, pathlib
 import pandas as pd
 from typing import Any, Optional, Tuple
 from .settings import DB_PATH
-from .utils import iso_today
+from .utils import iso_today, iso_now
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign key enforcement
     return conn
 
 def init_db():
@@ -31,7 +32,7 @@ def add_exception(conn, ex_type: str, context: str):
 def add_changelog(conn, action: str, details: str, actor: str = "system"):
     conn.execute(
         "INSERT INTO changelog(event_time, actor, action, details) VALUES (?,?,?,?)",
-        (iso_today(), actor, action, details),
+        (iso_now(), actor, action, details),
     )
     conn.commit()
 
@@ -68,6 +69,15 @@ def log_change(event_type: str, details: str, actor: str = "system"):
     """Log a change event to the changelog table."""
     with get_conn() as conn:
         add_changelog(conn, event_type, details, actor)
+
+def ensure_db_initialized():
+    """Ensure database is initialized with proper schema before any operations."""
+    # Check if the main tables exist
+    with get_conn() as conn:
+        result = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='vendors'").fetchone()
+        if not result:
+            # Database needs to be initialized
+            init_db()
 
 def create_exception(ex_type: str, context: str):
     """Create an exception record."""

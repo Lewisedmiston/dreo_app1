@@ -3,8 +3,11 @@ import pandas as pd
 from datetime import date
 from common.utils import page_setup, load_file_to_dataframe
 from common.settings import KNOWN_VENDORS
-from common.db import execute_query, pd_read_sql, log_change, create_exception, get_db_connection
+from common.db import execute_query, pd_read_sql, log_change, create_exception, get_db_connection, ensure_db_initialized
 from common.etl import process_catalog_dataframe
+
+# Ensure database is properly initialized before any operations
+ensure_db_initialized()
 
 page_setup("Upload Vendor Catalogs")
 
@@ -74,6 +77,10 @@ if uploaded_file:
 
                 # Process the dataframe using ETL logic
                 df_processed = process_catalog_dataframe(df_to_process, vendor_id)
+                
+                # Populate vendor_name for all processed rows
+                if not df_processed.empty:
+                    df_processed['vendor_name'] = vendor_name
                 
                 if not df_processed.empty:
                     st.write("Processed Data Preview (ready for import):")

@@ -10,6 +10,10 @@ ISO = "%Y-%m-%d"
 def iso_today() -> str:
     return datetime.now().strftime(ISO)
 
+def iso_now() -> str:
+    """Get current timestamp with date and time for better audit precision."""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 _money = re.compile(r"[^0-9.]+")
 def to_float(x, default=0.0):
     if x is None:
