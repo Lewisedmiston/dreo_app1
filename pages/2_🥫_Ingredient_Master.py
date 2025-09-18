@@ -2,10 +2,12 @@ import streamlit as st
 import pandas as pd
 from common.utils import page_setup
 from common.db import pd_read_sql, execute_query, log_change
+from common.data_layer import success_toast, error_toast, info_toast
+from datetime import datetime
 
 page_setup("Ingredient Master")
 
-st.info("Manage your canonical list of ingredients. Create new ingredients and map them to specific vendor items to lock in costing.")
+st.markdown("---")
 
 # --- Functions to Refresh State ---
 def refresh_ingredients():

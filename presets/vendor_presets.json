@@ -1,0 +1,47 @@
+{
+  "PFG": {
+    "description": "Performance Food Group mapping",
+    "columns": {
+      "item_number": "Item #",
+      "item_description": "Description", 
+      "pack_size_str": "Pack Size",
+      "case_price": "Case Price",
+      "vendor_name": "PFG",
+      "price_date": "Price Date"
+    },
+    "required": ["Item #", "Description", "Case Price"],
+    "auto_fields": {
+      "vendor_name": "PFG"
+    }
+  },
+  "Sysco": {
+    "description": "Sysco Foods mapping", 
+    "columns": {
+      "item_number": "SUPC",
+      "item_description": "Product Name",
+      "pack_size_str": "Pack",
+      "case_price": "Price",
+      "vendor_name": "Sysco",
+      "price_date": "Date"
+    },
+    "required": ["SUPC", "Product Name", "Price"],
+    "auto_fields": {
+      "vendor_name": "Sysco"
+    }
+  },
+  "Produce": {
+    "description": "Produce vendor mapping",
+    "columns": {
+      "item_number": "SKU",
+      "item_description": "Item",
+      "pack_size_str": "Unit",
+      "case_price": "Cost",
+      "vendor_name": "Produce",
+      "price_date": "Updated"
+    },
+    "required": ["SKU", "Item", "Cost"],
+    "auto_fields": {
+      "vendor_name": "Produce"
+    }
+  }
+}

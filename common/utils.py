@@ -32,12 +32,61 @@ def to_float(x, default=0.0):
         return default
 
 def page_setup(title: str):
-    """Set up the Streamlit page with title and configuration."""
+    """Set up the Streamlit page with title and mobile-first configuration."""
     st.set_page_config(
         page_title=f"Dreo Kitchen Ops - {title}",
         page_icon="🍳",
-        layout="wide"
+        layout="wide",
+        initial_sidebar_state="collapsed"
     )
+    
+    # Mobile-first CSS
+    st.markdown("""
+    <style>
+    /* Touch-friendly buttons */
+    .stButton > button {
+        height: 50px;
+        font-size: 1rem;
+        border-radius: 8px;
+        font-weight: bold;
+        min-width: 120px;
+    }
+    
+    .stNumberInput > div > div > input {
+        height: 50px;
+        font-size: 1.1rem;
+    }
+    
+    .stSelectbox > div > div > div {
+        height: 50px;
+        font-size: 1rem;
+    }
+    
+    .stTextInput > div > div > input {
+        height: 50px;
+        font-size: 1rem;
+    }
+    
+    /* Mobile optimizations */
+    @media (max-width: 768px) {
+        .stButton > button {
+            height: 60px;
+            font-size: 1.1rem;
+        }
+        
+        .stNumberInput > div > div > input {
+            height: 60px;
+            font-size: 1.2rem;
+        }
+    }
+    
+    /* Hide Streamlit branding for cleaner mobile experience */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    </style>
+    """, unsafe_allow_html=True)
+    
     st.title(title)
 
 @st.cache_data(ttl=600)  # Cache for 10 minutes
@@ -156,3 +205,62 @@ def clear_data_caches():
             key_str = str(key).lower()
             if 'cache' in key_str or 'df' in key_str:
                 del st.session_state[key]
+
+def safe_parse_date(date_str, default=None):
+    """
+    Safely parse dates with fallback to default
+    Handles various date formats and edge cases
+    """
+    import pandas as pd
+    
+    if pd.isna(date_str) or date_str == "" or date_str is None:
+        return default
+    
+    try:
+        # Convert to string if not already
+        date_str = str(date_str).strip()
+        
+        # Try pandas to_datetime first (handles many formats)
+        parsed = pd.to_datetime(date_str, errors='raise')
+        return parsed.date() if hasattr(parsed, 'date') else parsed
+        
+    except Exception:
+        # Try some common formats manually
+        common_formats = [
+            '%Y-%m-%d',
+            '%m/%d/%Y', 
+            '%m-%d-%Y',
+            '%d/%m/%Y',
+            '%Y%m%d',
+            '%m/%d/%y',
+            '%Y-%m-%d %H:%M:%S'
+        ]
+        
+        for fmt in common_formats:
+            try:
+                parsed = datetime.strptime(date_str, fmt)
+                return parsed
+            except:
+                continue
+        
+        # If all else fails, return default
+        return default
+
+# Toast notification helpers (duplicates from data_layer for compatibility)
+def success_toast(message: str):
+    """Show success message"""
+    st.success(f"✅ {message}")
+    if hasattr(st, 'toast'):
+        st.toast(f"✅ {message}", icon="✅")
+
+def error_toast(message: str):
+    """Show error message"""  
+    st.error(f"❌ {message}")
+    if hasattr(st, 'toast'):
+        st.toast(f"❌ {message}", icon="❌")
+
+def info_toast(message: str):
+    """Show info message"""
+    st.info(f"ℹ️ {message}")
+    if hasattr(st, 'toast'):
+        st.toast(f"ℹ️ {message}", icon="ℹ️")

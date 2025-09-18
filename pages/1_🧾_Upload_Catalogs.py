@@ -1,15 +1,105 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
-from common.utils import page_setup, load_file_to_dataframe, get_excel_sheet_names, detect_vendor_from_sheet_name
+from datetime import date, datetime
+from common.utils import page_setup, load_file_to_dataframe, get_excel_sheet_names, detect_vendor_from_sheet_name, safe_parse_date
 from common.settings import KNOWN_VENDORS
 from common.db import execute_query, pd_read_sql, log_change, create_exception, get_db_connection, ensure_db_initialized
 from common.etl import process_catalog_dataframe
+from common.vendor_presets import load_vendor_presets, suggest_vendor_from_filename, apply_preset_mapping
+from common.data_layer import success_toast, error_toast, info_toast
 
 # Ensure database is properly initialized before any operations
 ensure_db_initialized()
 
-page_setup("Upload Vendor Catalogs")
+# Mobile-first page config
+st.set_page_config(
+    page_title="Upload Catalogs",
+    page_icon="🧾",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+# Enhanced mobile-first CSS
+st.markdown("""
+<style>
+.preset-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.preset-card:hover {
+    transform: scale(1.02);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+.preset-card.active {
+    background: linear-gradient(135deg, #2ed573 0%, #17a2b8 100%);
+}
+
+.upload-zone {
+    border: 3px dashed #ccc;
+    border-radius: 12px;
+    padding: 2rem;
+    text-align: center;
+    background: #f8f9fa;
+    margin: 1rem 0;
+}
+
+.success-stats {
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 1rem 0;
+}
+
+/* Touch-friendly form elements */
+.stSelectbox > div > div > div {
+    height: 50px;
+    font-size: 1rem;
+}
+
+.stTextInput > div > div > input {
+    height: 50px;
+    font-size: 1rem;
+}
+
+.stButton > button {
+    height: 50px;
+    font-size: 1rem;
+    border-radius: 8px;
+    font-weight: bold;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+    .stButton > button {
+        height: 60px;
+        font-size: 1.1rem;
+    }
+    
+    .upload-zone {
+        padding: 1.5rem 1rem;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Header with home button
+col1, col2 = st.columns([3, 1])
+
+with col1:
+    st.markdown("# 🧾 Upload Catalogs")
+    st.markdown("Upload vendor price sheets with smart column mapping")
+
+with col2:
+    if st.button("🏠 Home", use_container_width=True):
+        st.switch_page("Home.py")
 
 st.info("📊 Upload a vendor price sheet (CSV or Excel). Map the columns, preview the data, and import.")
 
@@ -42,6 +132,50 @@ if vendor_name:
         st.success(f"✅ Added new vendor '{vendor_name}' to the database.")
         # Clear cache after adding new vendor
         get_vendor_id.clear()
+
+# --- 1.5. VENDOR PRESET SELECTION ---
+st.markdown("---")
+st.markdown("### 🎯 Quick Setup Presets")
+
+presets = load_vendor_presets()
+preset_options = ["Custom Mapping"] + list(presets.keys())
+
+# Auto-suggest preset based on vendor selection
+default_preset = "Custom Mapping"
+if vendor_name in presets:
+    default_preset = vendor_name
+
+# Preset selection with cards
+preset_cols = st.columns(len(preset_options))
+selected_preset = st.session_state.get('selected_preset', default_preset)
+
+for i, preset in enumerate(preset_options):
+    with preset_cols[i]:
+        if preset == "Custom Mapping":
+            card_content = f"""
+            <div class="preset-card {'active' if selected_preset == preset else ''}">
+                <h4>🔧 Custom</h4>
+                <p style="font-size: 0.8rem;">Manual column mapping</p>
+            </div>
+            """
+        else:
+            preset_info = presets[preset]
+            card_content = f"""
+            <div class="preset-card {'active' if selected_preset == preset else ''}">
+                <h4>🏪 {preset}</h4>
+                <p style="font-size: 0.8rem;">{preset_info.get('description', 'Vendor preset')}</p>
+            </div>
+            """
+        
+        st.markdown(card_content, unsafe_allow_html=True)
+        
+        if st.button(f"Select {preset}", key=f"preset_{preset}", use_container_width=True):
+            st.session_state.selected_preset = preset
+            selected_preset = preset
+            st.rerun()
+
+if selected_preset != "Custom Mapping":
+    st.info(f"📋 Using **{selected_preset}** preset - columns will be auto-mapped based on vendor format")
 
 # --- 2. FILE UPLOAD ---
 st.subheader("2. Upload File")

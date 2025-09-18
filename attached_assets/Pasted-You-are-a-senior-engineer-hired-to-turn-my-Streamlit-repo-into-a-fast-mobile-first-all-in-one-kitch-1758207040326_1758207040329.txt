@@ -1,0 +1,58 @@
+You are a senior engineer hired to turn my Streamlit repo into a fast, mobile-first all-in-one kitchen ops app that is better than paper or spreadsheets for daily use.
+
+Repo: https://github.com/Lewisedmiston/dreo_app1
+Runtime: Streamlit on Replit (public preview URL available).
+Goal: One app for Inventory, Ordering, Catalog Import/ETL, Recipe/Costing (later) with a clean Home dashboard.
+
+High-level outcomes (non-negotiable)
+	•	Mobile-first UX (one-handed use on iPhone): big tap targets, minimal typing, sticky action buttons.
+	•	Speed: pages render < 1s after cache; uploads/processes show progress.
+	•	Zero data loss: all user actions confirmed with toasts; undo where possible.
+	•	Simple mental model: “Count → Review → Submit” and “Build Order → Review → Submit”.
+
+Must-have features (Phase 1)
+	1.	Home dashboard (Home.py)
+	•	Tiles for: Count Inventory, Build Order, Upload Catalogs, Ingredient Master, Export.
+	•	Show quick metrics: Active SKUs, Open Order lines, Last count date.
+	2.	Inventory Count flow (pages/4_📦_Inventory.py)
+	•	Load current item list from CSV/Excel or session cache.
+	•	Filter by Location (Walk-in, Dry, Freezer).
+	•	Scan or Search: text box that filters as you type; optional barcode field if present.
+	•	For each item row: Description, UOM, and a + / – / direct qty input.
+	•	Save Draft to local browser storage (IndexedDB via st.session_state + st.experimental_get_query_params as fallback).
+	•	Submit Count → write to a simple persistence layer (see “Data” below) and show a “Count Summary” screen.
+	3.	Ordering flow (pages/5_🧾_Ordering.py)
+	•	Vendor selector (PFG, Sysco, Produce).
+	•	List shows: Item, Pack/UOM, Par, On Hand, Suggested, editable Order Qty.
+	•	Tap row to increment; long-press opens numeric keypad input.
+	•	Order Cart panel with totals and vendor split by email/export.
+	•	Export: CSV + nicely formatted XLSX line sheet.
+	4.	Catalog Upload (pages/1_📄_Upload_Catalogs.py)
+	•	Robust column mapper with saved presets for PFG, Sysco, Produce.
+	•	Required fields: item_number, description, uom, case_cost, vendor, price_date.
+	•	Auto-add price_date=today() if missing. Graceful parse for weird dates.
+	•	Show preview → dedupe by vendor + item_number → commit.
+	5.	Ingredient Master (pages/2_🧴_Ingredient_Master.py)
+	•	Table editor (st.data_editor) for descriptions, default UOM, vendor linkage.
+	•	Calculate cost per count-UOM using pack/price data.
+	•	Export master as CSV/XLSX.
+
+Data (keep simple, file-based for now)
+
+Create a small “data” layer in /data that writes CSVs so we can grow later:
+	•	data/catalogs/*.csv (one per vendor, normalized columns)
+	•	data/ingredient_master.csv
+	•	data/inventory_counts/*.csv (timestamped snapshots)
+	•	data/orders/*.csv (timestamped, vendor-specific)
+Add helper module common/db.py with:
+	•	read_table(name), write_table(name, df), append_snapshot(name, df).
+Use @st.cache_data for reads and st.cache_data.clear() on writes.
+
+Engineering tasks (please implement)
+	•	Add common/__init__.py (fix import errors) and create Home.py.
+	•	Refactor pages to use forms and stateful flows:
+	•	st.form for submit actions (debounce reruns).
+	•	st.session_state for cart/draft counts (counts_draft, order_cart).
+	•	Add a tiny toast/notify helper: st.success, st.error, st.toast wrappers.
+	•	Add column presets (JSON in /presets) for vendor uploads so I can pick “PFG” and skip manual mapping.
+	•	Handle date parsing safely:
