@@ -236,40 +236,40 @@ if uploaded_file:
             
             with col1:
                 st.markdown("**📋 Required Fields**")
-            code_col = st.selectbox(
-                "Vendor Item Code *", 
-                file_columns, 
-                index=file_columns.index(auto_mappings['vendor_item_code']) if auto_mappings['vendor_item_code'] in file_columns else 0,
-                help="Unique code/SKU for the item"
-            )
-            desc_col = st.selectbox(
-                "Item Description *", 
-                file_columns,
-                index=file_columns.index(auto_mappings['description']) if auto_mappings['description'] in file_columns else 0,
-                help="Name or description of the item"
-            )
-            pack_col = st.selectbox(
-                "Pack/Size String *", 
-                file_columns,
-                index=file_columns.index(auto_mappings['pack_size']) if auto_mappings['pack_size'] in file_columns else 0,
-                help="e.g., '6/5 lb' or '200 ct'"
-            )
+                code_col = st.selectbox(
+                    "Vendor Item Code *", 
+                    file_columns, 
+                    index=file_columns.index(auto_mappings['vendor_item_code']) if auto_mappings['vendor_item_code'] in file_columns else 0,
+                    help="Unique code/SKU for the item"
+                )
+                desc_col = st.selectbox(
+                    "Item Description *", 
+                    file_columns,
+                    index=file_columns.index(auto_mappings['description']) if auto_mappings['description'] in file_columns else 0,
+                    help="Name or description of the item"
+                )
+                pack_col = st.selectbox(
+                    "Pack/Size String *", 
+                    file_columns,
+                    index=file_columns.index(auto_mappings['pack_size']) if auto_mappings['pack_size'] in file_columns else 0,
+                    help="e.g., '6/5 lb' or '200 ct'"
+                )
                 
             with col2:
                 st.markdown("**💰 Pricing & Dates**")
-            price_col = st.selectbox(
-                "Case Price *", 
-                file_columns,
-                index=file_columns.index(auto_mappings['case_price']) if auto_mappings['case_price'] in file_columns else 0,
-                help="Price for the entire case"
-            )
-            date_col = st.selectbox(
-                "Price Date", 
-                file_columns,
-                index=file_columns.index(auto_mappings['date']) if auto_mappings['date'] in file_columns else 0,
-                help="Optional. Uses today's date if not provided"
-            )
-            
+                price_col = st.selectbox(
+                    "Case Price *", 
+                    file_columns,
+                    index=file_columns.index(auto_mappings['case_price']) if auto_mappings['case_price'] in file_columns else 0,
+                    help="Price for the entire case"
+                )
+                date_col = st.selectbox(
+                    "Price Date", 
+                    file_columns,
+                    index=file_columns.index(auto_mappings['date']) if auto_mappings['date'] in file_columns else 0,
+                    help="Optional. Uses today's date if not provided"
+                )
+                
                 # Optional fields based on your data
                 st.markdown("**🏷️ Optional Fields**")
                 brand_col = st.selectbox(
