@@ -113,10 +113,10 @@ def normalize_catalog(df: pd.DataFrame, conn) -> pd.DataFrame:
 
 def process_catalog_dataframe(df: pd.DataFrame, vendor_id: int) -> pd.DataFrame:
     """Process uploaded catalog dataframe into the format expected by the database."""
-    from .db import get_conn
+    from .db import get_db_connection
     
     processed_rows = []
-    with get_conn() as conn:
+    with get_db_connection() as conn:
         for _, row in df.iterrows():
             # Map the expected columns from the upload page
             vendor_item_code = str(row.get("vendor_item_code", "")).strip()
@@ -127,6 +127,11 @@ def process_catalog_dataframe(df: pd.DataFrame, vendor_id: int) -> pd.DataFrame:
             
             if not vendor_item_code:
                 add_exception(conn, "MISSING_ITEM_CODE", f"Missing vendor item code for {item_description}")
+                continue
+                
+            # Skip rows with missing or invalid prices
+            if case_price is None or case_price <= 0:
+                add_exception(conn, "MISSING_PRICE", f"Missing or invalid price for item {vendor_item_code}: {item_description}")
                 continue
                 
             # Parse pack size information

@@ -11,21 +11,30 @@ ensure_db_initialized()
 
 page_setup("Upload Vendor Catalogs")
 
-st.info("Upload a vendor price sheet (CSV or Excel). Map the columns, preview the data, and import.")
+st.info("📊 Upload a vendor price sheet (CSV or Excel). Map the columns, preview the data, and import.")
+
+# Cache vendor lookup for better performance
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_vendor_id(vendor_name):
+    """Get vendor ID with caching to improve performance."""
+    vendor = execute_query("SELECT id FROM vendors WHERE name = ?", (vendor_name,), fetch='one')
+    if vendor:
+        return vendor['id']
+    return None
 
 # --- 1. VENDOR SELECTION ---
 st.subheader("1. Select Vendor")
 vendor_name = st.selectbox("Choose a vendor for this catalog:", KNOWN_VENDORS)
 
-# Get or create vendor_id
+# Get or create vendor_id with caching
 if vendor_name:
-    vendor = execute_query("SELECT id FROM vendors WHERE name = ?", (vendor_name,), fetch='one')
-    if vendor:
-        vendor_id = vendor['id']
-    else:
+    vendor_id = get_vendor_id(vendor_name)
+    if not vendor_id:
         # Insert new vendor and get its ID
         vendor_id = execute_query("INSERT INTO vendors (name) VALUES (?)", (vendor_name,))
-        st.success(f"Added new vendor '{vendor_name}' to the database.")
+        st.success(f"✅ Added new vendor '{vendor_name}' to the database.")
+        # Clear cache after adding new vendor
+        get_vendor_id.clear()
 
 # --- 2. FILE UPLOAD ---
 st.subheader("2. Upload File")
@@ -54,9 +63,29 @@ if uploaded_file:
         with col3:
             date_col = st.selectbox("Price Date", file_columns, help="Optional. If not provided, today's date will be used.")
 
-        # --- 4. PROCESS & IMPORT ---
+        # --- 4. DATA VALIDATION ---
+        if all([code_col, desc_col, pack_col, price_col]):
+            st.subheader("4. Data Validation")
+            
+            # Quick validation preview
+            missing_codes = df[code_col].isna().sum() if code_col else 0
+            missing_prices = df[price_col].isna().sum() if price_col else 0
+            invalid_prices = (pd.to_numeric(df[price_col], errors='coerce') <= 0).sum() if price_col else 0
+            
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
+                st.metric("Total Rows", len(df))
+            with col_b:
+                st.metric("Missing Codes", missing_codes, delta=None if missing_codes == 0 else "⚠️")
+            with col_c:
+                st.metric("Invalid Prices", missing_prices + invalid_prices, delta=None if (missing_prices + invalid_prices) == 0 else "⚠️")
+            
+            if missing_codes > 0 or (missing_prices + invalid_prices) > 0:
+                st.warning(f"⚠️ {missing_codes + missing_prices + invalid_prices} rows will be skipped due to missing/invalid data. Check the Exceptions page after import for details.")
+
+        # --- 5. PROCESS & IMPORT ---
         if st.button("Process and Import Data", disabled=(not all([code_col, desc_col, pack_col, price_col]))):
-            with st.spinner("Processing..."):
+            with st.spinner("Processing and validating data..."):
                 # Rename columns based on mapping
                 df_mapped = df.rename(columns={
                     code_col: "vendor_item_code",
@@ -65,9 +94,22 @@ if uploaded_file:
                     price_col: "case_price",
                 })
                 
-                # Handle date column
-                if date_col:
-                    df_mapped['price_date'] = pd.to_datetime(df[date_col]).dt.date
+                # Handle date column with robust error handling
+                if date_col and date_col != "":
+                    try:
+                        # First check if the column contains valid date-like values
+                        sample_values = df[date_col].dropna().head().tolist()
+                        if sample_values:
+                            # Try to parse a sample value to validate it's actually a date column
+                            pd.to_datetime(sample_values[0], errors='raise')
+                            df_mapped['price_date'] = pd.to_datetime(df[date_col], errors='coerce').dt.date
+                            # Replace any failed parsing with today's date
+                            df_mapped['price_date'] = df_mapped['price_date'].fillna(date.today())
+                        else:
+                            df_mapped['price_date'] = date.today()
+                    except (pd.errors.ParserError, ValueError, TypeError):
+                        st.warning(f"The selected date column '{date_col}' doesn't contain valid dates. Using today's date instead.")
+                        df_mapped['price_date'] = date.today()
                 else:
                     df_mapped['price_date'] = date.today()
 
@@ -75,33 +117,76 @@ if uploaded_file:
                 required_cols = ["vendor_item_code", "item_description", "pack_size_str", "case_price", "price_date"]
                 df_to_process = df_mapped[required_cols]
 
-                # Process the dataframe using ETL logic
+                # Process the dataframe using ETL logic with progress tracking
+                total_rows = len(df_to_process)
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                status_text.text(f"Processing {total_rows} rows...")
+                progress_bar.progress(0.2)
+                
                 df_processed = process_catalog_dataframe(df_to_process, vendor_id)
+                progress_bar.progress(0.6)
                 
                 # Populate vendor_name for all processed rows
                 if not df_processed.empty:
                     df_processed['vendor_name'] = vendor_name
+                    status_text.text(f"Successfully processed {len(df_processed)} of {total_rows} rows")
+                progress_bar.progress(0.8)
                 
                 if not df_processed.empty:
                     st.write("Processed Data Preview (ready for import):")
                     st.dataframe(df_processed.head())
 
-                    # Insert into database
+                    # Insert into database with optimized batch processing
                     try:
-                        with st.spinner("Importing to database..."), get_db_connection() as conn:
-                            df_processed.to_sql('catalog_items', conn, if_exists='append', index=False)
+                        status_text.text(f"Importing {len(df_processed)} items to database...")
+                        with get_db_connection() as conn:
+                            # Use chunked insertion for better performance with large files
+                            chunk_size = 100
+                            total_chunks = (len(df_processed) + chunk_size - 1) // chunk_size
+                            imported_count = 0
+                            
+                            for i, chunk_start in enumerate(range(0, len(df_processed), chunk_size)):
+                                chunk_end = min(chunk_start + chunk_size, len(df_processed))
+                                chunk_df = df_processed.iloc[chunk_start:chunk_end]
+                                
+                                try:
+                                    chunk_df.to_sql('catalog_items', conn, if_exists='append', index=False)
+                                    imported_count += len(chunk_df)
+                                    progress = 0.8 + (0.2 * (i + 1) / total_chunks)
+                                    progress_bar.progress(progress)
+                                    status_text.text(f"Imported {imported_count}/{len(df_processed)} items...")
+                                except Exception as chunk_error:
+                                    if "UNIQUE constraint failed" in str(chunk_error):
+                                        st.warning(f"⚠️ Some duplicate items were skipped in batch {i+1}")
+                                        continue
+                                    else:
+                                        raise chunk_error
                             
                             log_change(
                                 event_type='CATALOG_IMPORT', 
-                                details=f"Imported {len(df_processed)} items for vendor '{vendor_name}' from file '{uploaded_file.name}'."
+                                details=f"Imported {imported_count} items for vendor '{vendor_name}' from file '{uploaded_file.name}'."
                             )
-                            st.success(f"Successfully imported {len(df_processed)} items!")
+                            progress_bar.progress(1.0)
+                            status_text.text("✅ Import completed successfully!")
+                            
+                            # Show final results with enhanced feedback
+                            skipped_rows = total_rows - len(df_processed)
+                            if skipped_rows > 0:
+                                st.success(f"✅ Successfully imported {imported_count} items! ({skipped_rows} rows skipped - check Exceptions page for details)")
+                            else:
+                                st.success(f"✅ Successfully imported all {imported_count} items!")
                             st.balloons()
                     except Exception as e:
+                        progress_bar.progress(0)
+                        status_text.text("❌ Import failed")
                         st.error(f"An error occurred during database import: {e}")
-                        # Check for constraint errors specifically
+                        # Enhanced error guidance
                         if "UNIQUE constraint failed" in str(e):
-                            st.warning("It looks like some of this data (vendor, item code, date) already exists in the database. Duplicate rows were ignored.")
+                            st.info("💡 Tip: This data may already exist. Try using a different price date to update existing items.")
+                        elif "NOT NULL constraint failed" in str(e):
+                            st.info("💡 Tip: Some rows have missing required data. The app should have filtered these out - please report this issue.")
                         
                 else:
                     st.warning("No rows were processed. Check the file for errors or see the Exceptions page for details on parsing failures.")
