@@ -6,3 +6,31 @@ packages = ["glibcLocales"]
 
 [agent]
 expertMode = true
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Streamlit App"
+
+[[workflows.workflow]]
+name = "Streamlit App"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "streamlit run pages/1_🧾_Upload_Catalogs.py --server.port=5000 --server.address=0.0.0.0 --server.allowRunOnSave=true --server.headless=true"
+waitForPort = 5000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
