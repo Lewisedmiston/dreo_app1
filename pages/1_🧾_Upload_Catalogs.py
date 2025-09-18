@@ -116,6 +116,7 @@ if uploaded_file:
                 # Filter to only necessary columns
                 required_cols = ["vendor_item_code", "item_description", "pack_size_str", "case_price", "price_date"]
                 df_to_process = df_mapped[required_cols]
+                total_rows = len(df_to_process)  # Track total for status messages
 
                 # Pre-clean the dataframe before processing
                 status_text = st.empty()
