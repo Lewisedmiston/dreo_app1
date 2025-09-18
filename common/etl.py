@@ -129,10 +129,16 @@ def process_catalog_dataframe(df: pd.DataFrame, vendor_id: int) -> pd.DataFrame:
                 add_exception(conn, "MISSING_ITEM_CODE", f"Missing vendor item code for {item_description}")
                 continue
                 
-            # Skip rows with missing or invalid prices
-            if case_price is None or case_price <= 0:
-                add_exception(conn, "MISSING_PRICE", f"Missing or invalid price for item {vendor_item_code}: {item_description}")
+            # Skip rows with missing or invalid prices - be more strict
+            if case_price is None or case_price <= 0 or not isinstance(case_price, (int, float)) or str(case_price).strip() == "":
+                add_exception(conn, "MISSING_PRICE", f"Missing or invalid price for item {vendor_item_code}: {item_description} (price: {repr(case_price)})")
                 continue
+                
+            # Skip rows with missing price_date (NOT NULL constraint)
+            if not price_date or price_date.strip() == "":
+                from datetime import date
+                price_date = str(date.today())
+                add_exception(conn, "MISSING_PRICE_DATE", f"Missing price date for item {vendor_item_code}, using today's date")
                 
             # Parse pack size information
             pack_count, unit_qty, unit_uom = parse_packsize(pack_size_str)
