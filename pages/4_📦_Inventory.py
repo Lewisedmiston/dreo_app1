@@ -18,26 +18,99 @@ from common.db import (
     toast_info,
     toast_ok,
 )
+from common.team_state import (
+    DEFAULT_WORKSPACE_NAME,
+    ensure_workspace,
+    list_workspaces,
+    load_workspace,
+    save_workspace,
+)
+
+WORKSPACE_FEATURE = "inventory"
+WORKSPACE_SESSION_KEY = "inventory_workspace"
+NEW_WORKSPACE_OPTION = "➕ New workspace…"
 
 st.set_page_config(page_title="Inventory Count", layout="wide")
 
 # ---------------------------------------------------------------------------
 # Session state bootstrapping
 # ---------------------------------------------------------------------------
+DEFAULT_WORKSPACE_PAYLOAD: Dict[str, Dict[str, int]] = {
+    "draft": {},
+    "last_submitted": {},
+}
+
+
+def _persist_workspace(
+    *,
+    draft_override: Dict[str, int] | None = None,
+    last_submitted_override: Dict[str, int] | None = None,
+) -> None:
+    workspace_name = st.session_state.get(WORKSPACE_SESSION_KEY)
+    if not workspace_name:
+        return
+    draft_source = draft_override if draft_override is not None else st.session_state.get("inventory_draft", {})
+    last_source = last_submitted_override if last_submitted_override is not None else st.session_state.get("inventory_last_saved", {})
+
+    def _clean(payload: Dict[str, int] | None) -> Dict[str, int]:
+        if not payload:
+            return {}
+        return {str(key): int(value) for key, value in payload.items() if int(value)}
+
+    payload = {"draft": _clean(draft_source)}
+    last_payload = _clean(last_source)
+    if last_payload:
+        payload["last_submitted"] = last_payload
+    save_workspace(WORKSPACE_FEATURE, workspace_name, payload)
+
+
+existing_workspaces = list_workspaces(WORKSPACE_FEATURE)
+if not existing_workspaces:
+    ensure_workspace(
+        WORKSPACE_FEATURE,
+        DEFAULT_WORKSPACE_NAME,
+        default=DEFAULT_WORKSPACE_PAYLOAD,
+    )
+    existing_workspaces = [DEFAULT_WORKSPACE_NAME]
+
+current_workspace = st.session_state.get(WORKSPACE_SESSION_KEY)
+if current_workspace not in existing_workspaces:
+    current_workspace = existing_workspaces[0]
+    st.session_state[WORKSPACE_SESSION_KEY] = current_workspace
+
+workspace_payload = load_workspace(
+    WORKSPACE_FEATURE,
+    current_workspace,
+    default=DEFAULT_WORKSPACE_PAYLOAD,
+)
+
 if "inventory_draft" not in st.session_state:
-    st.session_state.inventory_draft: Dict[str, int] = {}
+    st.session_state.inventory_draft = {
+        str(key): int(value)
+        for key, value in workspace_payload.get("draft", {}).items()
+    }
 
 if "inventory_last_saved" not in st.session_state:
-    baseline: Dict[str, int] = {}
-    last_snapshot = latest_inventory()
-    if last_snapshot is not None and not last_snapshot.empty:
-        if "item_key" in last_snapshot.columns and "quantity" in last_snapshot.columns:
-            baseline = {
-                str(row["item_key"]): int(row["quantity"])
-                for _, row in last_snapshot.iterrows()
-                if row.get("quantity", 0)
-            }
-    st.session_state.inventory_last_saved = baseline
+    last_saved = workspace_payload.get("last_submitted") or {}
+    if last_saved:
+        st.session_state.inventory_last_saved = {
+            str(key): int(value)
+            for key, value in last_saved.items()
+            if int(value)
+        }
+    else:
+        baseline: Dict[str, int] = {}
+        last_snapshot = latest_inventory()
+        if last_snapshot is not None and not last_snapshot.empty:
+            if "item_key" in last_snapshot.columns and "quantity" in last_snapshot.columns:
+                baseline = {
+                    str(row["item_key"]): int(row["quantity"])
+                    for _, row in last_snapshot.iterrows()
+                    if row.get("quantity", 0)
+                }
+        st.session_state.inventory_last_saved = baseline
+
+_persist_workspace()
 
 
 # ---------------------------------------------------------------------------
@@ -92,6 +165,66 @@ base_df["item_key"] = base_df.apply(
 # Filters and search
 # ---------------------------------------------------------------------------
 st.title("📦 Inventory Count")
+
+with st.container(border=True):
+    st.caption("Shared workspace drafts let multiple users stay in sync.")
+    workspace_options = existing_workspaces + [NEW_WORKSPACE_OPTION]
+    current_index = workspace_options.index(current_workspace)
+    choice = st.selectbox(
+        "Active workspace",
+        workspace_options,
+        index=current_index,
+        key="inventory_workspace_select",
+    )
+    if choice == NEW_WORKSPACE_OPTION:
+        new_name = st.text_input(
+            "Name the new workspace",
+            key="inventory_workspace_new_name",
+            placeholder="e.g. Friday Night Crew",
+        )
+        create_cols = st.columns([1, 1])
+        if create_cols[0].button("Create", use_container_width=True):
+            try:
+                normalized = ensure_workspace(
+                    WORKSPACE_FEATURE,
+                    new_name,
+                    default=DEFAULT_WORKSPACE_PAYLOAD,
+                )
+            except ValueError:
+                st.warning("Enter a workspace name to create it.")
+            else:
+                st.session_state[WORKSPACE_SESSION_KEY] = normalized
+                st.session_state.inventory_draft = {}
+                st.session_state.pop("inventory_last_saved", None)
+                st.session_state.pop("inventory_workspace_new_name", None)
+                st.rerun()
+        if create_cols[1].button("Cancel", use_container_width=True):
+            st.session_state.pop("inventory_workspace_new_name", None)
+            st.rerun()
+    elif choice != current_workspace:
+        payload = load_workspace(
+            WORKSPACE_FEATURE,
+            choice,
+            default=DEFAULT_WORKSPACE_PAYLOAD,
+        )
+        st.session_state[WORKSPACE_SESSION_KEY] = choice
+        st.session_state.inventory_draft = {
+            str(key): int(value)
+            for key, value in payload.get("draft", {}).items()
+        }
+        last_payload = payload.get("last_submitted") or {}
+        if last_payload:
+            st.session_state.inventory_last_saved = {
+                str(key): int(value)
+                for key, value in last_payload.items()
+                if int(value)
+            }
+        else:
+            st.session_state.pop("inventory_last_saved", None)
+        st.rerun()
+    st.caption(
+        "Invite teammates to open the same workspace to share drafts instantly."
+    )
 
 cols = st.columns([3, 1])
 with cols[0]:
@@ -150,6 +283,7 @@ for _, item in filtered.iterrows():
     with minus_col:
         if st.button("➖", key=f"minus_{item_key}", use_container_width=True):
             st.session_state.inventory_draft[item_key] = max(0, current_qty - 1)
+            _persist_workspace()
             st.rerun()
 
     state_key = f"qty_{item_key}"
@@ -167,10 +301,12 @@ for _, item in filtered.iterrows():
         )
         if qty_val != current_qty:
             st.session_state.inventory_draft[item_key] = int(qty_val)
+            _persist_workspace()
 
     with plus_col:
         if st.button("➕", key=f"plus_{item_key}", use_container_width=True):
             st.session_state.inventory_draft[item_key] = current_qty + 1
+            _persist_workspace()
             st.rerun()
 
     st.divider()
@@ -200,7 +336,8 @@ with st.form("inventory_actions"):
     clear_clicked = btn_cols[2].form_submit_button("🗑️ Clear", use_container_width=True)
 
     if save_clicked:
-        toast_ok("Draft saved in this session")
+        _persist_workspace()
+        toast_ok("Draft saved for this workspace")
 
     if submit_clicked:
         if not counts:
@@ -231,6 +368,7 @@ with st.form("inventory_actions"):
             file_path = INVENTORY_DIR / f"{timestamp}.csv"
             submitted_df.to_csv(file_path, index=False)
             st.session_state.inventory_last_saved = counts.copy()
+            _persist_workspace(draft_override={}, last_submitted_override=counts)
             toast_ok(f"Snapshot saved ({item_count} items)")
             st.session_state.inventory_draft = {}
             st.experimental_set_query_params(last_snapshot=file_path.name)
@@ -238,6 +376,7 @@ with st.form("inventory_actions"):
 
     if clear_clicked:
         st.session_state.inventory_draft = {}
+        _persist_workspace(draft_override={})
         toast_info("Counts cleared")
         st.rerun()
 
