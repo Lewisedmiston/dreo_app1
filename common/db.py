@@ -14,9 +14,11 @@ DATA = Path("data")
 CATALOGS_DIR = DATA / "catalogs"
 INVENTORY_DIR = DATA / "inventory_counts"
 ORDERS_DIR = DATA / "orders"
+RECIPES_DIR = DATA / "recipes"
+EXCEPTIONS_DIR = DATA / "exceptions"
 
 # Ensure directories exist on import so the UI can assume they are available
-for directory in (DATA, CATALOGS_DIR, INVENTORY_DIR, ORDERS_DIR):
+for directory in (DATA, CATALOGS_DIR, INVENTORY_DIR, ORDERS_DIR, RECIPES_DIR, EXCEPTIONS_DIR):
     directory.mkdir(parents=True, exist_ok=True)
 
 
@@ -204,8 +206,10 @@ def detect_unsaved_changes(current: Dict[str, int], baseline: Optional[Dict[str,
 __all__ = [
     "CATALOGS_DIR",
     "DATA",
+    "EXCEPTIONS_DIR",
     "INVENTORY_DIR",
     "ORDERS_DIR",
+    "RECIPES_DIR",
     "detect_unsaved_changes",
     "get_metrics",
     "latest_file",
