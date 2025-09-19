@@ -6,14 +6,31 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-from common.db import ORDERS_DIR, load_catalogs, read_table, toast_err, toast_info, toast_ok
+from common.db import (
+    ORDERS_DIR,
+    available_vendors,
+    load_catalogs,
+    read_table,
+    toast_err,
+    toast_info,
+    toast_ok,
+)
+
+DEFAULT_VENDORS = ["PFG", "Sysco", "Produce"]
 
 st.set_page_config(page_title="Build Order", layout="wide")
 
 if "order_cart" not in st.session_state:
     st.session_state.order_cart = {}
 if "order_vendor" not in st.session_state:
-    st.session_state.order_vendor = "PFG"
+    st.session_state.order_vendor = None
+
+catalogs = load_catalogs()
+ingredients = read_table("ingredient_master")
+
+vendors = available_vendors(catalogs, ingredients, defaults=DEFAULT_VENDORS)
+if vendors and st.session_state.order_vendor not in vendors:
+    st.session_state.order_vendor = vendors[0]
 
 st.title("🧾 Build Order")
 
@@ -25,29 +42,32 @@ with top_cols[1]:
     if st.button("🏠 Home", use_container_width=True):
         st.switch_page("Home.py")
 
-vendors = ["PFG", "Sysco", "Produce"]
 st.session_state.order_vendor = st.segmented_control(
     "Vendor", vendors, default=st.session_state.order_vendor
 )
 
 search_term = st.text_input("Search items", placeholder="Item, SKU, barcode")
 
-catalogs = load_catalogs()
-ingredients = read_table("ingredient_master")
-
 if catalogs.empty and ingredients.empty:
     st.error("No data to build an order. Upload catalogs first.")
     st.stop()
 
 vendor = st.session_state.order_vendor
+vendor_key = vendor.casefold()
 
 if not catalogs.empty and "vendor" in catalogs.columns:
-    vendor_catalog = catalogs[catalogs["vendor"].str.contains(vendor, case=False, na=False)]
+    catalog_vendor_series = (
+        catalogs["vendor"].fillna("").astype(str).str.strip().str.casefold()
+    )
+    vendor_catalog = catalogs.loc[catalog_vendor_series == vendor_key].copy()
 else:
     vendor_catalog = pd.DataFrame()
 
 if not ingredients.empty and "vendor" in ingredients.columns:
-    vendor_items = ingredients[ingredients["vendor"].str.contains(vendor, case=False, na=False, regex=False)].copy()
+    ingredient_vendor_series = (
+        ingredients["vendor"].fillna("").astype(str).str.strip().str.casefold()
+    )
+    vendor_items = ingredients.loc[ingredient_vendor_series == vendor_key].copy()
 else:
     vendor_items = pd.DataFrame()
 

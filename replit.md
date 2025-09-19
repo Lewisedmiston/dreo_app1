@@ -54,7 +54,7 @@ Preferred communication style: Simple, everyday language.
 - **Task Automation**: VS Code tasks for running, formatting, and linting
 
 ## Data Sources
-- **Vendor Catalogs**: CSV and Excel file uploads from food service distributors (PFG, Sysco, etc.)
+- **Vendor Catalogs**: CSV and Excel file uploads from food service distributors (auto-detected vendors based on what you upload)
 - **Manual Data Entry**: Recipe creation and ingredient management through web interface
 - **Configuration Files**: Environment-based settings for operational parameters
 
