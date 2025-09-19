@@ -1,13 +1,100 @@
 from __future__ import annotations
+
+import json
 import re
-import pandas as pd
+from datetime import datetime
+from typing import Any, Dict, Optional
+from uuid import uuid4
+
 import numpy as np
+import pandas as pd
+
+from .db import read_table, write_table
 from .utils import to_float
+EXCEPTIONS_TABLE = "exceptions"
+EXCEPTION_COLUMNS = [
+    "id",
+    "timestamp",
+    "code",
+    "message",
+    "severity",
+    "context",
+    "resolved",
+    "resolved_at",
+    "resolved_by",
+]
 
 
-def add_exception(*_args, **_kwargs):
-    """Backward-compatible no-op placeholder for legacy DB exception logging."""
-    return None
+def _ensure_exception_frame(df: Optional[pd.DataFrame]) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=EXCEPTION_COLUMNS)
+    result = df.copy()
+    for col in EXCEPTION_COLUMNS:
+        if col not in result.columns:
+            result[col] = None
+    return result[EXCEPTION_COLUMNS]
+
+
+def add_exception(*args, **kwargs):
+    """Persist exceptions into the CSV-backed log for QA review."""
+
+    severity = kwargs.pop("severity", "error")
+    context = kwargs.pop("context", None)
+    code = kwargs.pop("code", None)
+    message = kwargs.pop("message", "")
+
+    if args:
+        if len(args) == 1 and code is None:
+            code = args[0]
+        elif len(args) >= 2:
+            if code is None:
+                code = args[1]
+            if len(args) >= 3 and not message:
+                message = args[2]
+
+    remaining_context: Dict[str, Any] = kwargs
+    if remaining_context:
+        if isinstance(context, dict):
+            context = {**context, **remaining_context}
+        elif context:
+            context = {"detail": context, **remaining_context}
+        else:
+            context = remaining_context
+
+    code = str(code or "UNKNOWN")
+    message = str(message or "")
+    severity_normalized = str(severity or "error").lower()
+    if severity_normalized not in {"error", "warning", "info"}:
+        severity_normalized = "error"
+
+    if context is None:
+        context_str = ""
+    elif isinstance(context, str):
+        context_str = context
+    else:
+        try:
+            context_str = json.dumps(context, default=str)
+        except TypeError:
+            context_str = str(context)
+
+    existing = _ensure_exception_frame(read_table(EXCEPTIONS_TABLE))
+
+    timestamp = datetime.utcnow().isoformat(timespec="seconds")
+    payload = {
+        "id": str(uuid4()),
+        "timestamp": timestamp,
+        "code": code,
+        "message": message,
+        "severity": severity_normalized,
+        "context": context_str,
+        "resolved": False,
+        "resolved_at": "",
+        "resolved_by": "",
+    }
+
+    updated = pd.concat([existing, pd.DataFrame([payload])], ignore_index=True)
+    write_table(EXCEPTIONS_TABLE, updated)
+    return payload["id"]
 
 # Robust pack/size parser for patterns like '6/5 lb', '12/32 oz', '200 ct'
 # Patterns for pack/size parsing - handles both "6/5 lb" and "200 ct" formats
