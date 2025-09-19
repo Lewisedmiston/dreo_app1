@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Dict
+
 import pandas as pd
 import streamlit as st
 
@@ -15,15 +17,82 @@ from common.db import (
     toast_info,
     toast_ok,
 )
+from common.team_state import (
+    DEFAULT_WORKSPACE_NAME,
+    ensure_workspace,
+    list_workspaces,
+    load_workspace,
+    save_workspace,
+)
 
 DEFAULT_VENDORS = ["PFG", "Sysco", "Produce"]
 
+WORKSPACE_FEATURE = "ordering"
+WORKSPACE_SESSION_KEY = "ordering_workspace"
+NEW_WORKSPACE_OPTION = "➕ New workspace…"
+
+DEFAULT_WORKSPACE_PAYLOAD: Dict[str, object] = {
+    "cart": {},
+    "vendor": None,
+}
+
+
+def _persist_workspace(
+    *,
+    cart_override: Dict[str, int] | None = None,
+    vendor_override: str | None = None,
+) -> None:
+    workspace_name = st.session_state.get(WORKSPACE_SESSION_KEY)
+    if not workspace_name:
+        return
+    cart_source = cart_override if cart_override is not None else st.session_state.get("order_cart", {})
+    vendor_source = vendor_override if vendor_override is not None else st.session_state.get("order_vendor")
+
+    cart_payload = {
+        str(key): int(value)
+        for key, value in (cart_source or {}).items()
+        if int(value)
+    }
+
+    payload: Dict[str, object] = {"cart": cart_payload}
+    if vendor_source:
+        payload["vendor"] = str(vendor_source)
+
+    save_workspace(WORKSPACE_FEATURE, workspace_name, payload)
+
 st.set_page_config(page_title="Build Order", layout="wide")
 
+existing_workspaces = list_workspaces(WORKSPACE_FEATURE)
+if not existing_workspaces:
+    ensure_workspace(
+        WORKSPACE_FEATURE,
+        DEFAULT_WORKSPACE_NAME,
+        default=DEFAULT_WORKSPACE_PAYLOAD,
+    )
+    existing_workspaces = [DEFAULT_WORKSPACE_NAME]
+
+current_workspace = st.session_state.get(WORKSPACE_SESSION_KEY)
+if current_workspace not in existing_workspaces:
+    current_workspace = existing_workspaces[0]
+    st.session_state[WORKSPACE_SESSION_KEY] = current_workspace
+
+workspace_payload = load_workspace(
+    WORKSPACE_FEATURE,
+    current_workspace,
+    default=DEFAULT_WORKSPACE_PAYLOAD,
+)
+
 if "order_cart" not in st.session_state:
-    st.session_state.order_cart = {}
+    st.session_state.order_cart = {
+        str(key): int(value)
+        for key, value in workspace_payload.get("cart", {}).items()
+    }
+
 if "order_vendor" not in st.session_state:
-    st.session_state.order_vendor = None
+    vendor_value = workspace_payload.get("vendor")
+    st.session_state.order_vendor = str(vendor_value) if vendor_value else None
+
+_persist_workspace()
 
 catalogs = load_catalogs()
 ingredients = read_table("ingredient_master")
@@ -33,6 +102,57 @@ if vendors and st.session_state.order_vendor not in vendors:
     st.session_state.order_vendor = vendors[0]
 
 st.title("🧾 Build Order")
+
+with st.container(border=True):
+    st.caption("Shared carts keep vendor orders aligned across the team.")
+    workspace_options = existing_workspaces + [NEW_WORKSPACE_OPTION]
+    current_index = workspace_options.index(current_workspace)
+    choice = st.selectbox(
+        "Active workspace",
+        workspace_options,
+        index=current_index,
+        key="ordering_workspace_select",
+    )
+    if choice == NEW_WORKSPACE_OPTION:
+        new_name = st.text_input(
+            "Name the new workspace",
+            key="ordering_workspace_new_name",
+            placeholder="e.g. AM Prep Crew",
+        )
+        create_cols = st.columns([1, 1])
+        if create_cols[0].button("Create", use_container_width=True):
+            try:
+                normalized = ensure_workspace(
+                    WORKSPACE_FEATURE,
+                    new_name,
+                    default=DEFAULT_WORKSPACE_PAYLOAD,
+                )
+            except ValueError:
+                st.warning("Enter a workspace name to create it.")
+            else:
+                st.session_state[WORKSPACE_SESSION_KEY] = normalized
+                st.session_state.order_cart = {}
+                st.session_state.order_vendor = None
+                st.session_state.pop("ordering_workspace_new_name", None)
+                st.rerun()
+        if create_cols[1].button("Cancel", use_container_width=True):
+            st.session_state.pop("ordering_workspace_new_name", None)
+            st.rerun()
+    elif choice != current_workspace:
+        payload = load_workspace(
+            WORKSPACE_FEATURE,
+            choice,
+            default=DEFAULT_WORKSPACE_PAYLOAD,
+        )
+        st.session_state[WORKSPACE_SESSION_KEY] = choice
+        st.session_state.order_cart = {
+            str(key): int(value)
+            for key, value in payload.get("cart", {}).items()
+        }
+        vendor_value = payload.get("vendor")
+        st.session_state.order_vendor = str(vendor_value) if vendor_value else None
+        st.rerun()
+    st.caption("Switch workspaces to collaborate with another shift.")
 
 top_cols = st.columns([3, 1])
 with top_cols[0]:
@@ -45,6 +165,7 @@ with top_cols[1]:
 st.session_state.order_vendor = st.segmented_control(
     "Vendor", vendors, default=st.session_state.order_vendor
 )
+_persist_workspace()
 
 search_term = st.text_input("Search items", placeholder="Item, SKU, barcode")
 
@@ -144,6 +265,7 @@ for _, row in vendor_items.iterrows():
     with actions_col:
         if st.button("➖", key=f"minus_order_{item_key}", use_container_width=True):
             st.session_state.order_cart[item_key] = max(0, current_qty - 1)
+            _persist_workspace()
             st.rerun()
 
     qty_state_key = f"order_qty_{item_key}"
@@ -165,9 +287,11 @@ for _, row in vendor_items.iterrows():
             if value != current_qty:
                 st.session_state.order_cart[item_key] = int(value)
                 st.session_state[qty_state_key] = int(value)
+                _persist_workspace()
                 st.rerun()
         if st.button("➕", key=f"plus_order_{item_key}", use_container_width=True):
             st.session_state.order_cart[item_key] = current_qty + 1
+            _persist_workspace()
             st.rerun()
 
     order_records.append(
@@ -206,7 +330,8 @@ with st.form("order_actions"):
     clear_clicked = col3.form_submit_button("🗑️ Clear Cart", use_container_width=True)
 
     if save_clicked:
-        toast_info("Draft saved — quantities stay in session.")
+        _persist_workspace()
+        toast_info("Draft saved for this workspace.")
 
     if export_clicked:
         if active_lines.empty:
@@ -249,10 +374,12 @@ with st.form("order_actions"):
             }
             st.session_state.order_cart = {}
             st.session_state.order_flash = f"Order exported to {csv_path.name}"
+            _persist_workspace(cart_override={})
             st.rerun()
 
     if clear_clicked:
         st.session_state.order_cart = {}
+        _persist_workspace(cart_override={})
         toast_info("Cart cleared")
         st.rerun()
 
