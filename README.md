@@ -7,7 +7,7 @@ Mobile-first Streamlit workspace that replaces paper pads for nightly counts, ve
 - **Home dashboard** with instant metrics (active SKUs, last inventory snapshot, open order lines) and shortcuts to core flows.
 - **Inventory counts** sourced from the latest catalogs/ingredient master with touch-friendly +/- controls, draft persistence, and timestamped snapshots in `data/inventory_counts/`.
 - **Ordering workspace** with vendor filters, par/suggested math, sticky cart totals, and CSV/XLSX exports saved in `data/orders/`.
-- **Catalog uploader** powered by JSON presets for PFG, Sysco, and Produce vendors; handles missing dates, dedupes by vendor + item number, and writes to `data/catalogs/<vendor>.csv`.
+- **Catalog uploader** powered by JSON presets (ships with PFG, Sysco, Produce examples) that dedupes by vendor + item number, writes to `data/catalogs/<vendor>.csv`, and feeds the dynamic vendor pickers across the app.
 - **Ingredient master** data editor that calculates cost-per-count and stays in sync with vendor links.
 - **Export center** to download the most recent ingredient master, inventory snapshot, order export, or any vendor catalog file.
 

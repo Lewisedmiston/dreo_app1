@@ -1,11 +1,22 @@
 # Home.py
 import streamlit as st
+
+from common.db import available_vendors, load_catalogs, read_table
+
+DEFAULT_VENDORS = ["PFG", "Sysco", "Produce"]
 st.set_page_config(page_title="Dreo Kitchen Ops", layout="wide")
 st.title("Dreo Kitchen Ops")
 
 st.caption("Quick access to your daily tools. Use the sidebar anytime.")
+
+catalogs = load_catalogs()
+ingredient_master = read_table("ingredient_master")
+vendor_names = available_vendors(catalogs, ingredient_master, defaults=DEFAULT_VENDORS)
+vendor_metric = " • ".join(vendor_names) if vendor_names else "—"
+
 c1, c2, c3 = st.columns(3)
-with c1: st.metric("Vendors", "PFG • Sysco • Produce")
+with c1:
+    st.metric("Vendors", vendor_metric)
 with c2: st.metric("Active SKUs", "—")
 with c3: st.metric("Open Orders", "—")
 

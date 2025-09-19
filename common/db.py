@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Optional, Sequence
 
 import pandas as pd
 import streamlit as st
@@ -102,6 +102,35 @@ def load_catalogs() -> pd.DataFrame:
     return combined
 
 
+def available_vendors(
+    *frames: pd.DataFrame, defaults: Optional[Sequence[str]] = None
+) -> list[str]:
+    """Return a sorted list of vendor names derived from provided DataFrames."""
+
+    vendor_map: dict[str, str] = {}
+    for frame in frames:
+        if frame.empty or "vendor" not in frame.columns:
+            continue
+        series = frame["vendor"].dropna()
+        if series.empty:
+            continue
+        series = series.astype(str).str.strip()
+        series = series[series != ""]
+        for name in series:
+            key = name.casefold()
+            if key not in vendor_map:
+                vendor_map[key] = name
+
+    vendors = [vendor_map[key] for key in sorted(vendor_map)]
+    if vendors:
+        return vendors
+
+    if defaults is None:
+        return []
+
+    return list(defaults)
+
+
 def latest_file(directory: Path) -> Optional[Path]:
     files = [p for p in directory.glob("*.csv") if p.is_file()]
     if not files:
@@ -183,6 +212,7 @@ __all__ = [
     "latest_inventory",
     "latest_order",
     "load_catalogs",
+    "available_vendors",
     "read_table",
     "safe_parse_date",
     "snapshot",
