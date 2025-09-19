@@ -1,0 +1,18 @@
+{
+  "vendor": "PFG",
+  "required": ["item_number", "description", "uom", "case_cost", "price_date"],
+  "map": {
+    "item_number": "Item #",
+    "description": "Description",
+    "uom": "UOM",
+    "case_cost": "CASE COST",
+    "price_date": "Price Date",
+    "brand": "Brand",
+    "pack_size": "Pack",
+    "category": "Category",
+    "barcode": "UPC"
+  },
+  "defaults": {
+    "vendor": "PFG"
+  }
+}

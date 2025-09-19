@@ -4,7 +4,6 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from typing import Optional
-from functools import wraps
 import hashlib
 
 ISO = "%Y-%m-%d"
@@ -88,33 +87,6 @@ def page_setup(title: str):
     """, unsafe_allow_html=True)
     
     st.title(title)
-
-@st.cache_data(ttl=600)  # Cache for 10 minutes
-def get_cached_ingredients():
-    """Get ingredients with smart caching to reduce database hits."""
-    from .db import pd_read_sql
-    return pd_read_sql("""
-        SELECT 
-            ingredient_id, 
-            ingredient_name, 
-            costing_method, 
-            current_cost_per_oz, 
-            current_cost_per_each
-        FROM ingredients 
-        ORDER BY ingredient_name
-    """)
-
-@st.cache_data(ttl=600)  # Cache for 10 minutes
-def get_cached_recipes():
-    """Get recipes with smart caching to reduce database hits."""
-    from .db import pd_read_sql
-    return pd_read_sql("SELECT recipe_id, recipe_name, menu_price FROM recipes ORDER BY recipe_name")
-
-@st.cache_data(ttl=300)  # Cache for 5 minutes
-def get_cached_vendors():
-    """Get all vendors with caching."""
-    from .db import pd_read_sql
-    return pd_read_sql("SELECT vendor_id, vendor_name FROM vendors ORDER BY vendor_name")
 
 def smart_cache_key(*args, **kwargs):
     """Generate a cache key from arguments for complex caching."""
