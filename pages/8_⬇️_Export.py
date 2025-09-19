@@ -7,12 +7,40 @@ import io
 import pandas as pd
 import streamlit as st
 
+from datetime import datetime
+
 from common.db import CATALOGS_DIR, INVENTORY_DIR, ORDERS_DIR, latest_file, read_table
+from common.excel_export import export_workbook
 
 st.set_page_config(page_title="Export", layout="wide")
 
 st.title("⬇️ Export Data")
 st.caption("Grab the latest ingredient master, counts, orders, or vendor catalogs.")
+
+st.subheader("Menu costing workbook")
+st.caption("Combine ingredient master, catalogs, recipes, and latest ops data into a single XLSX file.")
+
+workbook_state_key = "export_workbook_payload"
+payload = st.session_state.get(workbook_state_key)
+
+if st.button("⬇️ Export workbook", type="primary"):
+    file_name, workbook_bytes = export_workbook()
+    payload = {
+        "file_name": file_name,
+        "bytes": workbook_bytes,
+        "generated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    st.session_state[workbook_state_key] = payload
+    st.success(f"Workbook generated — {file_name}")
+
+if payload:
+    st.download_button(
+        "Download workbook",
+        data=payload["bytes"],
+        file_name=payload["file_name"],
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key=f"workbook_download_{payload['generated']}",
+    )
 
 # Ingredient master -----------------------------------------------------------------
 ingredients = read_table("ingredient_master")
