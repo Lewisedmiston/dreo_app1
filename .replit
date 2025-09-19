@@ -28,29 +28,13 @@ outputType = "webview"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "PYTHONPATH=/home/runner/workspace streamlit run pages/1_🧾_Upload_Catalogs.py --server.port=5000 --server.address=0.0.0.0 --server.allowRunOnSave=true --server.headless=true"
-waitForPort = 5000
+args = "PYTHONPATH=/home/runner/workspace streamlit run Home.py --server.port=3000 --server.address=0.0.0.0 --server.allowRunOnSave=true --server.headless=true"
+waitForPort = 3000
 
 [[ports]]
-localPort = 5000
-externalPort = 80
-
-[[ports]]
-localPort = 33035
-externalPort = 3002
-
-[[ports]]
-localPort = 34619
-externalPort = 3001
-
-[[ports]]
-localPort = 40663
-externalPort = 3003
-
-[[ports]]
-localPort = 43723
+localPort = 3000
 externalPort = 3000
 
 [deployment]
 deploymentTarget = "autoscale"
-run = ["bash", "-c", "cd /home/runner/workspace && PYTHONPATH=/home/runner/workspace streamlit run pages/1_🧾_Upload_Catalogs.py --server.port=5000 --server.address=0.0.0.0 --server.headless=true"]
+run = ["bash", "-c", "cd /home/runner/workspace && PYTHONPATH=/home/runner/workspace streamlit run Home.py --server.port=3000 --server.address=0.0.0.0 --server.headless=true"]

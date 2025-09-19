@@ -3,7 +3,11 @@ import re
 import pandas as pd
 import numpy as np
 from .utils import to_float
-from .db import add_exception
+
+
+def add_exception(*_args, **_kwargs):
+    """Backward-compatible no-op placeholder for legacy DB exception logging."""
+    return None
 
 # Robust pack/size parser for patterns like '6/5 lb', '12/32 oz', '200 ct'
 # Patterns for pack/size parsing - handles both "6/5 lb" and "200 ct" formats

@@ -1,0 +1,18 @@
+{
+  "vendor": "Produce",
+  "required": ["item_number", "description", "uom", "case_cost", "price_date"],
+  "map": {
+    "item_number": "SKU",
+    "description": "Item",
+    "uom": "Unit",
+    "case_cost": "Cost",
+    "price_date": "Updated",
+    "brand": "Brand",
+    "pack_size": "Pack",
+    "category": "Category",
+    "barcode": "PLU"
+  },
+  "defaults": {
+    "vendor": "Produce"
+  }
+}
