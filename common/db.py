@@ -9,27 +9,29 @@ from typing import Dict, Iterable, Optional, Sequence
 import pandas as pd
 import streamlit as st
 
-# Root data directory structure
-DATA = Path("data")
-CATALOGS_DIR = DATA / "catalogs"
-INVENTORY_DIR = DATA / "inventory_counts"
-ORDERS_DIR = DATA / "orders"
-RECIPES_DIR = DATA / "recipes"
-EXCEPTIONS_DIR = DATA / "exceptions"
+from .constants import (
+    CATALOGS_DIR,
+    DATA_ROOT,
+    EXCEPTIONS_DIR,
+    INVENTORY_DIR,
+    ORDERS_DIR,
+    RECIPES_DIR,
+)
 
 # Ensure directories exist on import so the UI can assume they are available
-for directory in (DATA, CATALOGS_DIR, INVENTORY_DIR, ORDERS_DIR, RECIPES_DIR, EXCEPTIONS_DIR):
+for directory in (DATA_ROOT, CATALOGS_DIR, INVENTORY_DIR, ORDERS_DIR, RECIPES_DIR, EXCEPTIONS_DIR):
     directory.mkdir(parents=True, exist_ok=True)
 
 
 def _resolve(path: str | Path) -> Path:
     """Resolve a logical path (within data/) to a concrete CSV path."""
-    p = DATA / Path(path)
+    p = DATA_ROOT / Path(path)
     if p.suffix == "":
         p = p.with_suffix(".csv")
     return p
 
 
+@st.cache_data(show_spinner=False)
 def read_table(path: str | Path, **kwargs) -> pd.DataFrame:
     """Read a CSV file inside the data directory, returning an empty frame if missing."""
     csv_path = _resolve(path)
@@ -50,7 +52,7 @@ def snapshot(dir_name: str, df: pd.DataFrame, prefix: str) -> Path:
     """Save a timestamped snapshot CSV and return the file path."""
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{prefix}_{ts}.csv" if prefix else f"{ts}.csv"
-    csv_path = DATA / dir_name / filename
+    csv_path = DATA_ROOT / dir_name / filename
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(csv_path, index=False)
     return csv_path
@@ -86,6 +88,7 @@ def safe_parse_date(value, default: Optional[date] = None) -> pd.Timestamp:
 # Convenience accessors -----------------------------------------------------
 
 
+@st.cache_data(show_spinner=False)
 def load_catalogs() -> pd.DataFrame:
     """Concatenate all catalog CSVs into a single normalized DataFrame."""
     frames: list[pd.DataFrame] = []
@@ -140,6 +143,7 @@ def latest_file(directory: Path) -> Optional[Path]:
     return max(files, key=lambda p: p.stat().st_mtime)
 
 
+@st.cache_data(show_spinner=False)
 def latest_inventory() -> Optional[pd.DataFrame]:
     latest = latest_file(INVENTORY_DIR)
     if latest is None:
@@ -151,6 +155,7 @@ def latest_inventory() -> Optional[pd.DataFrame]:
         return None
 
 
+@st.cache_data(show_spinner=False)
 def latest_order() -> Optional[pd.DataFrame]:
     latest = latest_file(ORDERS_DIR)
     if latest is None:
@@ -162,6 +167,7 @@ def latest_order() -> Optional[pd.DataFrame]:
         return None
 
 
+@st.cache_data(show_spinner=False)
 def get_metrics() -> Dict[str, str]:
     """Return quick dashboard metrics derived from the file-backed data store."""
     catalogs = load_catalogs()
@@ -205,7 +211,7 @@ def detect_unsaved_changes(current: Dict[str, int], baseline: Optional[Dict[str,
 
 __all__ = [
     "CATALOGS_DIR",
-    "DATA",
+    "DATA_ROOT",
     "EXCEPTIONS_DIR",
     "INVENTORY_DIR",
     "ORDERS_DIR",

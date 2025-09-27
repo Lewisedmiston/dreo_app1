@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
+import os
 from typing import Any, Dict
 
-from .db import DATA
+from filelock import FileLock, Timeout
+
+from .constants import DATA_ROOT
 
 # File used to persist shared workspace state across Streamlit sessions.
-TEAM_STATE_FILE = DATA / "team_state.json"
+TEAM_STATE_FILE = DATA_ROOT / "team_state.json"
+TEAM_STATE_LOCK = TEAM_STATE_FILE.with_suffix(".lock")
+LOCK_TIMEOUT = float(os.getenv("DREO_TEAM_LOCK_TIMEOUT", "5"))
+
+TEAM_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 # Default friendly workspace name used when no explicit workspaces exist yet.
 DEFAULT_WORKSPACE_NAME = "Main Floor"
@@ -41,12 +47,13 @@ def _read_store() -> Dict[str, Dict[str, Any]]:
     if not TEAM_STATE_FILE.exists():
         return {}
     try:
-        with TEAM_STATE_FILE.open("r", encoding="utf-8") as handle:
-            data = json.load(handle)
-            if isinstance(data, dict):
-                return data
-    except json.JSONDecodeError:
-        # Corrupt/partial state files should not crash the app; start fresh.
+        with FileLock(str(TEAM_STATE_LOCK), timeout=LOCK_TIMEOUT):
+            with TEAM_STATE_FILE.open("r", encoding="utf-8") as handle:
+                data = json.load(handle)
+                if isinstance(data, dict):
+                    return data
+    except (json.JSONDecodeError, Timeout):
+        # Corrupt/partial state files or lock timeouts should not crash the app.
         pass
     return {}
 
@@ -54,9 +61,14 @@ def _read_store() -> Dict[str, Dict[str, Any]]:
 def _write_store(store: Dict[str, Dict[str, Any]]) -> None:
     TEAM_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     temp_path = TEAM_STATE_FILE.with_suffix(".tmp")
-    with temp_path.open("w", encoding="utf-8") as handle:
-        json.dump(store, handle, indent=2, sort_keys=True)
-    temp_path.replace(TEAM_STATE_FILE)
+    try:
+        with FileLock(str(TEAM_STATE_LOCK), timeout=LOCK_TIMEOUT):
+            with temp_path.open("w", encoding="utf-8") as handle:
+                json.dump(store, handle, indent=2, sort_keys=True)
+            temp_path.replace(TEAM_STATE_FILE)
+    except Timeout:
+        # If we cannot acquire the lock, skip the write to avoid corruption.
+        pass
 
 
 def list_workspaces(feature: str) -> list[str]:
