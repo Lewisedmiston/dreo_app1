@@ -10,7 +10,11 @@ from typing import Dict, Iterable, Iterator, Optional, Sequence
 
 import pandas as pd
 import streamlit as st
-from filelock import FileLock, Timeout
+
+try:  # pragma: no cover - exercised indirectly in tests
+    from filelock import FileLock, Timeout
+except ModuleNotFoundError:  # pragma: no cover - fallback when dependency missing
+    from .locking import FileLock, Timeout
 from zoneinfo import ZoneInfo
 
 from .constants import (
