@@ -45,11 +45,11 @@ for col, (label, value) in zip(metric_cols, metric_labels):
 st.markdown("### Quick actions")
 
 tiles = [
-    ("📦", "Count Inventory", "Tap to capture walk-through counts", "pages/4_📦_Inventory.py"),
-    ("🧾", "Build Order", "Par-driven vendor carts", "pages/5_🧾_Ordering.py"),
-    ("📄", "Upload Catalogs", "Import price lists & dedupe", "pages/1_📄_Upload_Catalogs.py"),
-    ("🧴", "Ingredient Master", "UOM + cost intelligence", "pages/2_🧴_Ingredient_Master.py"),
-    ("⬇️", "Export", "Download latest counts & orders", "pages/8_⬇️_Export.py"),
+    ("📦", "Count Inventory", "Tap to capture walk-through counts", "pages/inventory.py"),
+    ("🧾", "Build Order", "Par-driven vendor carts", "pages/ordering.py"),
+    ("📄", "Upload Catalogs", "Import price lists & dedupe", "pages/upload_catalogs.py"),
+    ("🧴", "Ingredient Master", "UOM + cost intelligence", "pages/ingredient_master.py"),
+    ("⬇️", "Export", "Download latest counts & orders", "pages/export.py"),
 ]
 
 st.markdown("<div class='home-actions'>", unsafe_allow_html=True)

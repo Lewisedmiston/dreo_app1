@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 import io
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
+from zoneinfo import ZoneInfo
 
-from datetime import datetime
-
-from common.db import CATALOGS_DIR, INVENTORY_DIR, ORDERS_DIR, latest_file, read_table
+from common import utils
+from common.constants import CATALOGS_DIR, INGREDIENT_MASTER_FILE, INVENTORY_DIR, ORDERS_DIR, TZ_NAME
+from common.db import latest_file, read_table
 from common.excel_export import export_workbook
 
-st.set_page_config(page_title="Export", layout="wide")
+utils.page_setup("Export")
 
 st.title("⬇️ Export Data")
 st.caption("Grab the latest ingredient master, counts, orders, or vendor catalogs.")
+
+TZ = ZoneInfo(TZ_NAME)
 
 st.subheader("Menu costing workbook")
 st.caption("Combine ingredient master, catalogs, recipes, and latest ops data into a single XLSX file.")
@@ -28,7 +32,7 @@ if st.button("⬇️ Export workbook", type="primary"):
     payload = {
         "file_name": file_name,
         "bytes": workbook_bytes,
-        "generated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "generated": datetime.now(tz=TZ).strftime("%Y-%m-%d %H:%M:%S %Z"),
     }
     st.session_state[workbook_state_key] = payload
     st.success(f"Workbook generated — {file_name}")
@@ -43,11 +47,12 @@ if payload:
     )
 
 # Ingredient master -----------------------------------------------------------------
-ingredients = read_table("ingredient_master")
+ingredients = utils.normalize_items(read_table(INGREDIENT_MASTER_FILE))
 if ingredients.empty:
     st.warning("Ingredient master is empty — add records first.")
 else:
     st.subheader("Ingredient Master")
+    st.write(f"Rows: {ingredients.shape[0]}")
     csv_bytes = ingredients.to_csv(index=False).encode("utf-8")
     excel_buffer = io.BytesIO()
     with pd.ExcelWriter(excel_buffer, engine="xlsxwriter") as writer:
@@ -97,8 +102,8 @@ if not catalog_files:
     st.info("No catalogs saved yet.")
 else:
     for catalog_file in catalog_files:
-        st.write(f"{catalog_file.name}")
         catalog_df = pd.read_csv(catalog_file)
+        st.write(f"{catalog_file.name} • {catalog_df.shape[0]} rows")
         st.download_button(
             f"⬇️ Download {catalog_file.stem} catalog",
             data=catalog_df.to_csv(index=False).encode("utf-8"),
