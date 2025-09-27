@@ -6,7 +6,10 @@ import json
 import os
 from typing import Any, Dict
 
-from filelock import FileLock, Timeout
+try:  # pragma: no cover - see ``common.locking`` for fallback
+    from filelock import FileLock, Timeout
+except ModuleNotFoundError:  # pragma: no cover - triggered in test environment
+    from .locking import FileLock, Timeout
 
 from .constants import DATA_ROOT
 
