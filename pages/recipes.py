@@ -7,10 +7,12 @@ from uuid import uuid4
 import pandas as pd
 import streamlit as st
 
+from common import utils
 from common.costing import compute_recipe_costs, prepare_ingredient_costs
-from common.db import read_table, toast_err, toast_info, toast_ok, write_table
+from common.db import load_catalogs, read_table, toast_err, toast_info, toast_ok, write_table
+from common.constants import INGREDIENT_MASTER_FILE
 
-st.set_page_config(page_title="Recipes", layout="wide")
+utils.page_setup("Recipes")
 
 st.title("👨‍🍳 Recipes")
 st.caption("Cost dishes, track profitability, and keep prep notes in one place.")
@@ -20,8 +22,10 @@ st.caption("Cost dishes, track profitability, and keep prep notes in one place."
 def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     recipes_df = read_table("recipes")
     lines_df = read_table("recipe_lines")
-    ingredients_df = read_table("ingredient_master")
-    return recipes_df, lines_df, ingredients_df
+    ingredients_df = read_table(INGREDIENT_MASTER_FILE)
+    catalogs_df = load_catalogs()
+    normalized_ingredients = utils.normalize_items(ingredients_df, catalogs_df)
+    return recipes_df, lines_df, normalized_ingredients
 
 
 recipes, recipe_lines, ingredients = load_data()
@@ -50,6 +54,7 @@ missing_ids = recipes["recipe_id"].isin(["", None, pd.NA])
 if missing_ids.any():
     recipes.loc[missing_ids, "recipe_id"] = [str(uuid4()) for _ in range(missing_ids.sum())]
     write_table("recipes", recipes)
+    utils.clear_data_caches()
 
 numeric_recipe_cols = ["yield_qty", "menu_price"]
 for col in numeric_recipe_cols:
@@ -98,6 +103,7 @@ def create_recipe(name: str, category: str, yield_qty: float, yield_uom: str, pr
     }
     updated = pd.concat([recipes, pd.DataFrame([row])], ignore_index=True)
     write_table("recipes", updated)
+    utils.clear_data_caches()
     toast_ok(f"Created recipe '{row['name']}'")
     st.session_state.selected_recipe_id = new_id
     st.cache_data.clear()
@@ -380,7 +386,7 @@ if not recipes.empty and st.session_state.selected_recipe_id:
 
                 write_table("recipes", updated_recipes)
                 write_table("recipe_lines", updated_lines)
+                utils.clear_data_caches()
                 toast_ok("Recipe saved")
-                st.cache_data.clear()
                 st.rerun()
 

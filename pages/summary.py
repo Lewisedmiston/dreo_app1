@@ -5,10 +5,12 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from common import utils
 from common.costing import compute_recipe_costs
-from common.db import latest_inventory, latest_order, read_table
+from common.constants import INGREDIENT_MASTER_FILE
+from common.db import latest_inventory, latest_order, load_catalogs, read_table
 
-st.set_page_config(page_title="Summary", layout="wide")
+utils.page_setup("Summary")
 
 st.title("📊 Summary")
 st.caption("One-stop view of profitability, inventory health, and purchasing activity.")
@@ -16,17 +18,18 @@ st.caption("One-stop view of profitability, inventory health, and purchasing act
 
 def normalize_inventory(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
-        return pd.DataFrame(columns=["description", "inventory_qty"])
+        return pd.DataFrame(columns=["item_key", "description", "quantity"])
     inventory = df.copy()
+    if "item_key" not in inventory.columns:
+        inventory["item_key"] = (
+            inventory.get("description", inventory.index.astype(str))
+            .astype(str)
+            .str.lower()
+        )
     columns_lower = {c.lower(): c for c in inventory.columns}
     name_col = columns_lower.get("description")
-    if name_col is None:
-        for candidate in ["item", "ingredient", "name"]:
-            if candidate in columns_lower:
-                name_col = columns_lower[candidate]
-                break
     qty_col = None
-    for candidate in ["on_hand", "on_hand_qty", "qty", "quantity", "count"]:
+    for candidate in ["quantity", "qty", "count", "on_hand", "inventory_qty"]:
         if candidate in columns_lower:
             qty_col = columns_lower[candidate]
             break
@@ -34,22 +37,22 @@ def normalize_inventory(df: pd.DataFrame) -> pd.DataFrame:
     if name_col:
         rename_map[name_col] = "description"
     if qty_col:
-        rename_map[qty_col] = "inventory_qty"
+        rename_map[qty_col] = "quantity"
     inventory = inventory.rename(columns=rename_map)
-    if "description" not in inventory.columns:
-        inventory["description"] = inventory.index.astype(str)
-    if "inventory_qty" not in inventory.columns:
-        inventory["inventory_qty"] = 0
-    inventory["description"] = inventory["description"].astype(str).str.strip()
-    inventory["inventory_qty"] = pd.to_numeric(
-        inventory["inventory_qty"], errors="coerce"
-    ).fillna(0.0)
-    return inventory[["description", "inventory_qty"]]
+    inventory["description"] = inventory.get("description", inventory["item_key"]).astype(str)
+    inventory["quantity"] = pd.to_numeric(inventory.get("quantity", 0), errors="coerce").fillna(0.0)
+    return inventory[["item_key", "description", "quantity"]]
 
 
 recipes = read_table("recipes")
 recipe_lines = read_table("recipe_lines")
-ingredients = read_table("ingredient_master")
+raw_ingredients = read_table(INGREDIENT_MASTER_FILE)
+catalogs = load_catalogs()
+ingredients = utils.normalize_items(raw_ingredients, catalogs)
+ingredients["case_pack"] = ingredients["pack_size"]
+ingredients["case_uom"] = ingredients["uom"]
+ingredients["count_uom"] = ingredients["uom"]
+ingredients["cost_per_count"] = ingredients.get("unit_cost", 0)
 
 costed_lines, recipe_summary = compute_recipe_costs(recipes, recipe_lines, ingredients)
 recipe_summary = recipe_summary.fillna(0)
@@ -61,33 +64,33 @@ avg_margin_pct_display = f"{avg_margin_pct*100:.1f}%" if pd.notna(avg_margin_pct
 inventory_snapshot = latest_inventory()
 inventory_df = normalize_inventory(inventory_snapshot)
 
-ingredients = ingredients.copy()
-ingredients["description"] = ingredients.get("description", "").fillna("").astype(str)
-ingredients["par"] = pd.to_numeric(ingredients.get("par", 0), errors="coerce").fillna(0.0)
-ingredients["on_hand"] = pd.to_numeric(ingredients.get("on_hand", 0), errors="coerce").fillna(0.0)
+par_df = ingredients.copy()
+par_df["par"] = pd.to_numeric(par_df.get("par", 0), errors="coerce").fillna(0.0)
+par_df["on_hand"] = pd.to_numeric(par_df.get("on_hand", 0), errors="coerce").fillna(0.0)
 
 if not inventory_df.empty:
-    ingredients = ingredients.merge(inventory_df, on="description", how="left")
-    ingredients["on_hand"] = ingredients["inventory_qty"].fillna(ingredients["on_hand"])
+    inventory_counts = inventory_df[["item_key", "quantity"]].rename(columns={"quantity": "inventory_qty"})
+    par_df = par_df.merge(inventory_counts, on="item_key", how="left")
+    par_df["on_hand"] = par_df["inventory_qty"].fillna(par_df["on_hand"])
 
-ingredients["par_gap"] = (ingredients["par"] - ingredients["on_hand"]).clip(lower=0)
-total_par_gap = ingredients["par_gap"].sum()
+par_df["par_gap"] = (par_df["par"] - par_df["on_hand"]).clip(lower=0)
+total_par_gap = par_df["par_gap"].sum()
 
 orders_df = latest_order()
 order_total = 0.0
 vendor_breakdown = pd.DataFrame(columns=["Vendor", "Spend"])
 if orders_df is not None and not orders_df.empty:
     order = orders_df.copy()
-    order["order_qty"] = pd.to_numeric(order.get("order_qty", 0), errors="coerce").fillna(0.0)
+    order["quantity"] = pd.to_numeric(order.get("quantity", order.get("order_qty", 0)), errors="coerce").fillna(0.0)
     order["case_cost"] = pd.to_numeric(order.get("case_cost", 0), errors="coerce").fillna(0.0)
-    if "line_total" not in order.columns:
-        order["line_total"] = order["order_qty"] * order["case_cost"]
-    order_total = float(order["line_total"].sum())
+    if "extended_cost" not in order.columns:
+        order["extended_cost"] = order["quantity"] * order["case_cost"]
+    order_total = float(order["extended_cost"].sum())
     order["vendor"] = order.get("vendor", pd.Series(["Unknown"] * len(order)))
     order["vendor"] = order["vendor"].fillna("Unknown")
     vendor_breakdown = (
-        order.groupby("vendor")["line_total"].sum().reset_index().rename(
-            columns={"vendor": "Vendor", "line_total": "Spend"}
+        order.groupby("vendor")["extended_cost"].sum().reset_index().rename(
+            columns={"vendor": "Vendor", "extended_cost": "Spend"}
         )
     )
 
@@ -112,7 +115,7 @@ top_margin = (
 )
 
 par_watch = (
-    ingredients[ingredients["par_gap"] > 0]
+    par_df[par_df["par_gap"] > 0]
     .sort_values("par_gap", ascending=False)
     .head(5)
     .rename(

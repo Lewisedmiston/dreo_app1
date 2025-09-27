@@ -2,22 +2,31 @@
 
 from __future__ import annotations
 
+from __future__ import annotations
+
 from datetime import datetime
 
 import pandas as pd
 import streamlit as st
+from zoneinfo import ZoneInfo
 
-from common.db import read_table, toast_info, toast_ok, write_table
-from common.etl import add_exception
+from common import utils
+from common.constants import EXCEPTIONS_DIR, TZ_NAME
+from common.db import log_exception, read_table, toast_info, toast_ok, write_table
 
-st.set_page_config(page_title="Exceptions & QA", layout="wide")
+utils.page_setup("Exceptions & QA")
 
 st.title("🚨 Exceptions & QA")
 st.caption("Review unresolved data issues, add follow-ups, and close out fixes.")
 
+TZ = ZoneInfo(TZ_NAME)
+
+
+EXCEPTIONS_PATH = EXCEPTIONS_DIR / "exceptions.csv"
+
 
 def load_exceptions() -> pd.DataFrame:
-    df = read_table("exceptions")
+    df = read_table(EXCEPTIONS_PATH)
     if df.empty:
         return pd.DataFrame(
             columns=[
@@ -54,9 +63,10 @@ def resolve_exception(exception_id: str) -> None:
         toast_info("Exception already cleared.")
         return
     df.loc[mask, "resolved"] = True
-    df.loc[mask, "resolved_at"] = datetime.utcnow().isoformat(timespec="seconds")
+    df.loc[mask, "resolved_at"] = datetime.now(tz=TZ).isoformat(timespec="seconds")
     df.loc[mask, "resolved_by"] = st.session_state.get("resolved_by", "app_user")
-    write_table("exceptions", df)
+    write_table(EXCEPTIONS_PATH, df)
+    utils.clear_data_caches()
     toast_ok("Exception resolved")
     st.rerun()
 
@@ -86,7 +96,16 @@ with st.form("add_exception_form", clear_on_submit=True):
         if not code.strip():
             toast_info("Provide a short code for the issue.")
         else:
-            add_exception(code=code.strip(), message=message.strip(), severity=severity, context=context.strip())
+            log_exception(
+                {
+                    "feature": "manual_log",
+                    "code": code.strip(),
+                    "message": message.strip(),
+                    "severity": severity,
+                    "context": context.strip(),
+                }
+            )
+            utils.clear_data_caches()
             toast_ok("Exception logged")
             st.rerun()
 

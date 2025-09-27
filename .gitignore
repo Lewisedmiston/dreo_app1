@@ -5,6 +5,7 @@ __pycache__/
 *.pyd
 *.sqlite
 *.db
+.lock
 .env
 .DS_Store
 *.xlsx

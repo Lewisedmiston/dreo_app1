@@ -8,16 +8,7 @@ packages = ["glibcLocales"]
 expertMode = true
 
 [workflows]
-runButton = "Project"
-
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Streamlit App"
+runButton = "Streamlit App"
 
 [[workflows.workflow]]
 name = "Streamlit App"
